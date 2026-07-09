@@ -67,7 +67,7 @@ func (a *App) SendChatMessage(modelName string, prompt string, history []ChatMes
 
 func sendJSONRequest(client *http.Client, method, url string, headers map[string]string, body []byte) ([]byte, int, error) {
 	backoff := 2 * time.Second
-	maxRetries := 4
+	maxRetries := 5
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		var bodyReader io.Reader
