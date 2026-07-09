@@ -129,6 +129,18 @@ function App() {
     node: FileNode | null;
   }>({ visible: false, x: 0, y: 0, node: null });
 
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
+    setToast({ message, type });
+  };
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
   const activeTab = tabs.find(t => t.id === activeTabId) || null;
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -686,14 +698,23 @@ function App() {
   const handleManualCompress = () => {
     if (!activeTab) return;
     const messages = activeTab.messages;
-    if (messages.length <= 4) return;
+    if (messages.length <= 4) {
+      showToast("No older logs to compress", "info");
+      return;
+    }
 
+    let compressedCount = 0;
     const compressed = messages.map((msg, idx) => {
       // Preserve the last 3 messages
       if (idx >= messages.length - 3) {
         return msg;
       }
       if (msg.role === 'user' && msg.content.startsWith('### TOOL OUTPUT:\n')) {
+        // Skip if already compressed
+        if (msg.content.includes("compressed to save context space")) {
+          return msg;
+        }
+
         const lines = msg.content.split('\n');
         let toolName = "tool output";
         if (lines.length > 1) {
@@ -702,6 +723,7 @@ function App() {
             toolName = toolName.slice(1, -1);
           }
         }
+        compressedCount++;
         return new main.ChatMessage({
           role: msg.role,
           content: `### TOOL OUTPUT:\n${toolName} (content manually compressed to save context space)`
@@ -709,6 +731,11 @@ function App() {
       }
       return msg;
     });
+
+    if (compressedCount === 0) {
+      showToast("Context already compressed", "info");
+      return;
+    }
 
     setTabs(prev => prev.map(t => {
       if (t.id === activeTab.id) {
@@ -719,6 +746,8 @@ function App() {
       }
       return t;
     }));
+
+    showToast(`Compressed ${compressedCount} tool output logs!`, "success");
   };
 
   // Custom markdown/code-block formatter
@@ -989,6 +1018,12 @@ function App() {
                   </button>
                 )}
               </div>
+              {toast && (
+                <div className={`toast-notification ${toast.type}`}>
+                  {toast.type === 'success' ? '✓ ' : 'ℹ '}
+                  {toast.message}
+                </div>
+              )}
             </aside>
           </>
         ) : (
