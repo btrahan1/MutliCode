@@ -683,6 +683,44 @@ function App() {
     }));
   };
 
+  const handleManualCompress = () => {
+    if (!activeTab) return;
+    const messages = activeTab.messages;
+    if (messages.length <= 4) return;
+
+    const compressed = messages.map((msg, idx) => {
+      // Preserve the last 3 messages
+      if (idx >= messages.length - 3) {
+        return msg;
+      }
+      if (msg.role === 'user' && msg.content.startsWith('### TOOL OUTPUT:\n')) {
+        const lines = msg.content.split('\n');
+        let toolName = "tool output";
+        if (lines.length > 1) {
+          toolName = lines[1].trim();
+          if (toolName.startsWith('[') && toolName.endsWith(']')) {
+            toolName = toolName.slice(1, -1);
+          }
+        }
+        return new main.ChatMessage({
+          role: msg.role,
+          content: `### TOOL OUTPUT:\n${toolName} (content manually compressed to save context space)`
+        });
+      }
+      return msg;
+    });
+
+    setTabs(prev => prev.map(t => {
+      if (t.id === activeTab.id) {
+        return {
+          ...t,
+          messages: compressed
+        };
+      }
+      return t;
+    }));
+  };
+
   // Custom markdown/code-block formatter
   const renderMessageContent = (content: string) => {
     if (!content) return null;
@@ -903,6 +941,9 @@ function App() {
                   </select>
                 </div>
                 <div className="chat-header-actions">
+                  <button className="clear-chat-btn" onClick={handleManualCompress} title="Compress Context History (Manual)">
+                    🗜️
+                  </button>
                   <button className="clear-chat-btn" onClick={handleClearChat} title="Clear Chat History">
                     🗑️
                   </button>
