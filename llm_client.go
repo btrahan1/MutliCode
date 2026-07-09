@@ -15,13 +15,13 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
-type GeminiContent struct {
-	Role  string       `json:"role,omitempty"`
-	Parts []GeminiPart `json:"parts"`
-}
-
 type GeminiPart struct {
 	Text string `json:"text"`
+}
+
+type GeminiContent struct {
+	Role  string       `json:"role"`
+	Parts []GeminiPart `json:"parts"`
 }
 
 // SendChatMessage routes the request to Ollama, Gemini, or OpenCode based on modelName.
@@ -65,6 +65,56 @@ func (a *App) SendChatMessage(modelName string, prompt string, history []ChatMes
 	return callOllama(modelName, prompt, history, systemPrompt, ollamaURL)
 }
 
+func sendJSONRequest(client *http.Client, method, url string, headers map[string]string, body []byte) ([]byte, int, error) {
+	backoff := 2 * time.Second
+	maxRetries := 4
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		var bodyReader io.Reader
+		if body != nil {
+			bodyReader = bytes.NewBuffer(body)
+		}
+
+		req, err := http.NewRequest(method, url, bodyReader)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			if attempt < maxRetries-1 {
+				time.Sleep(backoff)
+				backoff *= 2
+				continue
+			}
+			return nil, 0, err
+		}
+		defer resp.Body.Close()
+
+		respBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, resp.StatusCode, err
+		}
+
+		// Handle HTTP 429 Rate Limiting with exponential backoff
+		if resp.StatusCode == 429 {
+			if attempt < maxRetries-1 {
+				time.Sleep(backoff)
+				backoff *= 2
+				continue
+			}
+		}
+
+		return respBytes, resp.StatusCode, nil
+	}
+	return nil, 0, fmt.Errorf("max retries exceeded")
+}
+
 func callGemini(modelName string, prompt string, history []ChatMessage, systemPrompt string, apiKey string) (string, error) {
 	apiModel := "gemini-2.5-flash"
 	normalized := strings.ToLower(modelName)
@@ -95,7 +145,6 @@ func callGemini(modelName string, prompt string, history []ChatMessage, systemPr
 		"contents": contents,
 	}
 
-	// Include system instructions if provided
 	if systemPrompt != "" {
 		reqBody["systemInstruction"] = map[string]interface{}{
 			"parts": []interface{}{
@@ -111,20 +160,14 @@ func callGemini(modelName string, prompt string, history []ChatMessage, systemPr
 		return "", err
 	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Post(url, "application/json", bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	respBytes, err := io.ReadAll(resp.Body)
+	client := &http.Client{Timeout: 90 * time.Second}
+	respBytes, statusCode, err := sendJSONRequest(client, "POST", url, nil, jsonBytes)
 	if err != nil {
 		return "", err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Gemini API error %d: %s", resp.StatusCode, string(respBytes))
+	if statusCode != http.StatusOK {
+		return "", fmt.Errorf("Gemini API error %d: %s", statusCode, string(respBytes))
 	}
 
 	var result struct {
@@ -177,28 +220,18 @@ func callOpenCode(modelName string, prompt string, history []ChatMessage, system
 		return "", err
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBytes))
+	headers := map[string]string{
+		"Authorization": "Bearer " + apiKey,
+	}
+
+	client := &http.Client{Timeout: 90 * time.Second}
+	respBytes, statusCode, err := sendJSONRequest(client, "POST", url, headers, jsonBytes)
 	if err != nil {
 		return "", err
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	respBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("OpenCode API error %d: %s", resp.StatusCode, string(respBytes))
+	if statusCode != http.StatusOK {
+		return "", fmt.Errorf("OpenCode API error %d: %s", statusCode, string(respBytes))
 	}
 
 	var result struct {
@@ -249,20 +282,14 @@ func callOllama(modelName string, prompt string, history []ChatMessage, systemPr
 		return "", err
 	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Post(url, "application/json", bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	respBytes, err := io.ReadAll(resp.Body)
+	client := &http.Client{Timeout: 90 * time.Second}
+	respBytes, statusCode, err := sendJSONRequest(client, "POST", url, nil, jsonBytes)
 	if err != nil {
 		return "", err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Ollama error %d: %s", resp.StatusCode, string(respBytes))
+	if statusCode != http.StatusOK {
+		return "", fmt.Errorf("Ollama error %d: %s", statusCode, string(respBytes))
 	}
 
 	var result struct {
