@@ -1768,10 +1768,10 @@ function App() {
               <div className="chat-header">
                 <div className="model-selector-wrapper" style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                   <select 
-                    value={(MODELS.includes(activeTab.model) || customModels.includes(activeTab.model)) ? activeTab.model : "custom"} 
+                    value={MODELS.includes(activeTab.model) ? activeTab.model : "openrouter"} 
                     onChange={(e) => {
-                      if (e.target.value === "custom") {
-                        handleModelChange("meta-llama/llama-3.3-70b-instruct:free");
+                      if (e.target.value === "openrouter") {
+                        handleModelChange("openrouter/free");
                       } else {
                         handleModelChange(e.target.value);
                       }
@@ -1779,30 +1779,54 @@ function App() {
                     className="model-select"
                   >
                     {MODELS.map(m => <option key={m} value={m}>{m}</option>)}
-                    {customModels.filter(m => !MODELS.includes(m)).map(m => (
-                      <option key={m} value={m}>⭐ {m}</option>
-                    ))}
-                    <option value="custom">Custom Model...</option>
+                    <option value="openrouter">OpenRouter...</option>
                   </select>
-                  {(!MODELS.includes(activeTab.model) && !customModels.includes(activeTab.model) || activeTab.model === "custom") && (
-                    <input 
-                      type="text"
-                      value={activeTab.model === "custom" ? "" : activeTab.model}
-                      onChange={(e) => handleModelChange(e.target.value)}
-                      placeholder="Enter model identifier..."
-                      className="model-custom-input"
-                      style={{
-                        width: '180px',
-                        background: '#0d1117',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '4px',
-                        padding: '4px 8px',
-                        color: 'var(--text-main)',
-                        fontSize: '0.8rem',
-                        outline: 'none'
-                      }}
-                    />
-                  )}
+                  {!MODELS.includes(activeTab.model) && (() => {
+                    const openRouterList = ["openrouter/free", ...customModels.filter(m => m !== "openrouter/free")];
+                    const secondSelectValue = openRouterList.includes(activeTab.model) ? activeTab.model : "custom-type";
+                    return (
+                      <>
+                        <select
+                          value={secondSelectValue}
+                          onChange={(e) => {
+                            if (e.target.value === "custom-type") {
+                              handleModelChange("");
+                            } else {
+                              handleModelChange(e.target.value);
+                            }
+                          }}
+                          className="model-select openrouter-subselect"
+                          style={{ width: '130px' }}
+                        >
+                          {openRouterList.map(m => (
+                            <option key={m} value={m}>
+                              {m === "openrouter/free" ? "Default (Free)" : `⭐ ${m.split('/').pop()}`}
+                            </option>
+                          ))}
+                          <option value="custom-type">Type custom...</option>
+                        </select>
+                        {(secondSelectValue === "custom-type" || activeTab.model === "") && (
+                          <input 
+                            type="text"
+                            value={activeTab.model}
+                            onChange={(e) => handleModelChange(e.target.value)}
+                            placeholder="Enter model ID..."
+                            className="model-custom-input"
+                            style={{
+                              width: '140px',
+                              background: '#0d1117',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: '4px',
+                              padding: '4px 8px',
+                              color: 'var(--text-main)',
+                              fontSize: '0.8rem',
+                              outline: 'none'
+                            }}
+                          />
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
                 <div className="chat-header-actions">
                   <button className="clear-chat-btn" onClick={handleManualCompress} title="Compress Context History (Manual)">
