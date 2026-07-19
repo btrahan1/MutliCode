@@ -1211,13 +1211,14 @@ body {
   justify-content: center;
 }
 
-.spinning {
-  animation: task-spin 1.5s linear infinite;
+.pulsing {
+  animation: task-pulse 1.5s ease-in-out infinite;
 }
 
-@keyframes task-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+@keyframes task-pulse {
+  0% { transform: scale(0.92); opacity: 0.6; }
+  50% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(0.92); opacity: 0.6; }
 }
 
 .plan-approval-gate {

@@ -1041,8 +1041,8 @@ function App() {
               let icon = "⚪";
               let className = "task-pending";
               if (task.status === "in_progress") {
-                icon = "🔄";
-                className = "task-in-progress spinning";
+                icon = "🔵";
+                className = "task-in-progress pulsing";
               } else if (task.status === "completed") {
                 icon = "✅";
                 className = "task-completed";
