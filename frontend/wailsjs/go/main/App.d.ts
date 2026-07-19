@@ -20,6 +20,8 @@ export function GetDirectoryTree(arg1:string):Promise<main.FileNode>;
 
 export function GetFileContent(arg1:string,arg2:string):Promise<string>;
 
+export function GetMcpServersStatus():Promise<Record<string, string>>;
+
 export function GetPendingDiff(arg1:string):Promise<main.DiffProposal>;
 
 export function GetProjectSettings(arg1:string):Promise<main.ProjectSettings>;
@@ -41,6 +43,8 @@ export function OpenPathInExplorer(arg1:string,arg2:string):Promise<void>;
 export function RejectDiff(arg1:string):Promise<void>;
 
 export function RejectPlan(arg1:string,arg2:string):Promise<void>;
+
+export function ReloadMcpServers(arg1:string):Promise<void>;
 
 export function RenamePath(arg1:string,arg2:string,arg3:string):Promise<void>;
 

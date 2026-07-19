@@ -1,5 +1,21 @@
 export namespace main {
 	
+	export class McpServerConfig {
+	    command: string;
+	    args: string[];
+	    env: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new McpServerConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.command = source["command"];
+	        this.args = source["args"];
+	        this.env = source["env"];
+	    }
+	}
 	export class AppSettings {
 	    openWorkspaces: string[];
 	    activeWorkspace: string;
@@ -19,6 +35,7 @@ export namespace main {
 	    enforcePlanning: boolean;
 	    enableDiffViewer: boolean;
 	    customModels: string[];
+	    mcpServers: Record<string, McpServerConfig>;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -44,6 +61,7 @@ export namespace main {
 	        this.enforcePlanning = source["enforcePlanning"];
 	        this.enableDiffViewer = source["enableDiffViewer"];
 	        this.customModels = source["customModels"];
+	        this.mcpServers = this.convertValues(source["mcpServers"], McpServerConfig, true);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -166,6 +184,7 @@ export namespace main {
 	        this.language = source["language"];
 	    }
 	}
+	
 	export class ProjectSettings {
 	    techStack: string[];
 	

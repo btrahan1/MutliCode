@@ -29,7 +29,9 @@ import {
   GetPendingDiff,
   StartTerminal,
   SendTerminalInput,
-  StopTerminal
+  StopTerminal,
+  GetMcpServersStatus,
+  ReloadMcpServers
 } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { main } from "../wailsjs/go/models";
@@ -168,6 +170,8 @@ function App() {
     ollamaEndpoint: 'http://localhost:11434'
   });
   const [customModels, setCustomModels] = useState<string[]>([]);
+  const [mcpJsonConfig, setMcpJsonConfig] = useState('{}');
+  const [mcpStatus, setMcpStatus] = useState<Record<string, string>>({});
 
   const [toggles, setToggles] = useState({
     enableSearchCode: true,
@@ -352,6 +356,7 @@ function App() {
             ollamaEndpoint: loaded.ollamaEndpoint || 'http://localhost:11434'
           });
           setCustomModels((loaded as any).customModels || []);
+          setMcpJsonConfig(JSON.stringify((loaded as any).mcpServers || {}, null, 2));
           setToggles({
             enableSearchCode: loaded.enableSearchCode !== false,
             enableContextCompression: loaded.enableContextCompression !== false,
@@ -468,6 +473,11 @@ function App() {
       }
     });
 
+    let mcpParsed = {};
+    try {
+      mcpParsed = JSON.parse(mcpJsonConfig || '{}');
+    } catch (_) {}
+
     const settings = {
       openWorkspaces,
       activeWorkspace: activeWorkspacePath,
@@ -486,11 +496,38 @@ function App() {
       repoMapTokens: toggles.repoMapTokens,
       enforcePlanning: toggles.enforcePlanning,
       enableDiffViewer: toggles.enableDiffViewer,
-      customModels
+      customModels,
+      mcpServers: mcpParsed
     };
 
     SaveSettings(settings as any).catch(err => console.error("Failed to save settings:", err));
-  }, [tabs, activeTabId, isLoaded, sidebarWidth, chatWidth, theme, apiKeys, toggles, customModels]);
+  }, [tabs, activeTabId, isLoaded, sidebarWidth, chatWidth, theme, apiKeys, toggles, customModels, mcpJsonConfig]);
+
+  // Poll MCP Servers connection status in settings modal
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    const fetchStatus = () => {
+      GetMcpServersStatus()
+        .then(status => setMcpStatus(status || {}))
+        .catch(() => {});
+    };
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 4000);
+    return () => clearInterval(interval);
+  }, [isSettingsOpen]);
+
+  const handleSaveMcpConfig = () => {
+    try {
+      JSON.parse(mcpJsonConfig);
+      ReloadMcpServers(mcpJsonConfig)
+        .then(() => {
+          showToast("MCP Config applied. Restarting servers...", "success");
+        })
+        .catch(err => showToast(`Failed to reload MCP: ${err}`, "error"));
+    } catch (err) {
+      showToast(`Invalid JSON format: ${err}`, "error");
+    }
+  };
 
   // Autoscroll chat history
   useEffect(() => {
@@ -2104,6 +2141,81 @@ function App() {
                   />
                 </div>
               )}
+
+              <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '16px 0' }} />
+              
+              <div className="form-group">
+                <label style={{ fontWeight: '600', fontSize: '0.95rem', color: 'var(--accent-cyan)', marginBottom: '8px', display: 'block' }}>
+                  Model Context Protocol (MCP) Servers
+                </label>
+                
+                {Object.keys(mcpStatus).length > 0 && (
+                  <div style={{ marginBottom: '12px', background: '#0d1117', padding: '10px', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Server Status
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {Object.entries(mcpStatus).map(([name, status]) => {
+                        const isConnected = status === 'connected';
+                        return (
+                          <div key={name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                            <span style={{ fontWeight: '500' }}>{name}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                background: isConnected ? '#10b981' : '#ef4444',
+                                display: 'inline-block'
+                              }} />
+                              <span style={{ color: isConnected ? '#10b981' : 'var(--text-muted)' }}>
+                                {status}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <label style={{ fontSize: '0.82rem', marginBottom: '4px', display: 'block' }}>JSON Configuration</label>
+                <textarea
+                  rows={6}
+                  value={mcpJsonConfig}
+                  onChange={(e) => setMcpJsonConfig(e.target.value)}
+                  placeholder={`{\n  "sqlite": {\n    "command": "npx",\n    "args": ["-y", "@modelcontextprotocol/server-sqlite", "--db", "path/to/db"]\n  }\n}`}
+                  style={{
+                    fontFamily: 'Consolas, monospace',
+                    fontSize: '0.78rem',
+                    background: '#0d1117',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '4px',
+                    padding: '8px',
+                    color: 'var(--text-main)',
+                    width: '100%',
+                    resize: 'vertical',
+                    outline: 'none'
+                  }}
+                />
+                <button
+                  className="save-btn"
+                  onClick={handleSaveMcpConfig}
+                  style={{
+                    marginTop: '8px',
+                    padding: '6px 12px',
+                    fontSize: '0.8rem',
+                    background: 'var(--accent-cyan)',
+                    color: '#000',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Apply & Restart MCP Servers
+                </button>
+              </div>
             </div>
             <div className="settings-modal-footer">
               <button className="secondary-btn" onClick={() => setIsSettingsOpen(false)}>Close</button>

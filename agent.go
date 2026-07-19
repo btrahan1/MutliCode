@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -178,6 +179,33 @@ ___xml
   <status>in_progress</status> <!-- 'pending' | 'in_progress' | 'completed' | 'failed' -->
 </tool>
 ___`, toolIndex))
+
+			// Append active MCP server tools dynamically
+			a.mcpClientsMu.Lock()
+			for _, client := range a.mcpClients {
+				if !client.IsReady {
+					continue
+				}
+				for _, mcpTool := range client.Tools {
+					toolIndex++
+					schemaBytes, _ := json.MarshalIndent(mcpTool.InputSchema, "", "  ")
+					toolList = append(toolList, fmt.Sprintf(`%d. MCP Tool: %s (Provided by server '%s')
+Description: %s
+___xml
+<tool name="%s">
+  <!-- Provide arguments inside <content> as a single JSON object matching this schema:
+%s
+  -->
+  <content>
+    {
+      "arg1": "value"
+    }
+  </content>
+</tool>
+___`, toolIndex, mcpTool.Name, client.Name, mcpTool.Description, mcpTool.Name, string(schemaBytes)))
+				}
+			}
+			a.mcpClientsMu.Unlock()
 
 			toolsSpec := strings.Join(toolList, "\n\n")
 
@@ -720,6 +748,41 @@ func (a *App) executeTool(tabID string, workspacePath string, tool *ParsedTool) 
 		return fmt.Sprintf("Command output:\n%s", string(output))
 
 	default:
+		// Check MCP tools
+		a.mcpClientsMu.Lock()
+		var targetClient *McpClient
+		for _, client := range a.mcpClients {
+			if !client.IsReady {
+				continue
+			}
+			for _, t := range client.Tools {
+				if t.Name == tool.Name {
+					targetClient = client
+					break
+				}
+			}
+			if targetClient != nil {
+				break
+			}
+		}
+		a.mcpClientsMu.Unlock()
+
+		if targetClient != nil {
+			var arguments map[string]interface{}
+			if err := json.Unmarshal([]byte(tool.Content), &arguments); err != nil {
+				trimmed := strings.TrimSpace(tool.Content)
+				if err = json.Unmarshal([]byte(trimmed), &arguments); err != nil {
+					return fmt.Sprintf("Error: Failed to parse tool arguments JSON: %v. Raw content: %s", err, tool.Content)
+				}
+			}
+
+			output, err := targetClient.CallTool(tool.Name, arguments)
+			if err != nil {
+				return fmt.Sprintf("Error executing MCP tool '%s': %v", tool.Name, err)
+			}
+			return output
+		}
+
 		return fmt.Sprintf("Unknown tool: %s", tool.Name)
 	}
 }

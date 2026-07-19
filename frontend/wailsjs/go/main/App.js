@@ -38,6 +38,10 @@ export function GetFileContent(arg1, arg2) {
   return window['go']['main']['App']['GetFileContent'](arg1, arg2);
 }
 
+export function GetMcpServersStatus() {
+  return window['go']['main']['App']['GetMcpServersStatus']();
+}
+
 export function GetPendingDiff(arg1) {
   return window['go']['main']['App']['GetPendingDiff'](arg1);
 }
@@ -80,6 +84,10 @@ export function RejectDiff(arg1) {
 
 export function RejectPlan(arg1, arg2) {
   return window['go']['main']['App']['RejectPlan'](arg1, arg2);
+}
+
+export function ReloadMcpServers(arg1) {
+  return window['go']['main']['App']['ReloadMcpServers'](arg1);
 }
 
 export function RenamePath(arg1, arg2, arg3) {

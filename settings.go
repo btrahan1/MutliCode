@@ -10,6 +10,12 @@ import (
 
 var settingsMu sync.Mutex
 
+type McpServerConfig struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args"`
+	Env     map[string]string `json:"env"`
+}
+
 type AppSettings struct {
 	OpenWorkspaces   []string                 `json:"openWorkspaces"`
 	ActiveWorkspace  string                   `json:"activeWorkspace"`
@@ -29,6 +35,7 @@ type AppSettings struct {
 	EnforcePlanning           bool                     `json:"enforcePlanning"`
 	EnableDiffViewer          bool                     `json:"enableDiffViewer"`
 	CustomModels              []string                 `json:"customModels"`
+	McpServers                map[string]McpServerConfig `json:"mcpServers"`
 }
 
 func getSettingsPath() (string, error) {
@@ -127,6 +134,9 @@ func (a *App) LoadSettings() (AppSettings, error) {
 	}
 	if settings.CustomModels == nil {
 		settings.CustomModels = []string{}
+	}
+	if settings.McpServers == nil {
+		settings.McpServers = make(map[string]McpServerConfig)
 	}
 	if settings.OllamaEndpoint == "" {
 		settings.OllamaEndpoint = "http://localhost:11434"
