@@ -1908,7 +1908,10 @@ function App() {
             </div>
             <div className="settings-modal-body">
               <div className="form-group">
-                <label>Gemini API Key</label>
+                <label>
+                  Gemini API Key 
+                  <a href="#" onClick={(e) => { e.preventDefault(); OpenBrowserURL("https://aistudio.google.com/"); }} className="get-key-link">Get Key ↗</a>
+                </label>
                 <input 
                   type="password" 
                   value={apiKeys.geminiApiKey} 
@@ -1917,7 +1920,10 @@ function App() {
                 />
               </div>
               <div className="form-group">
-                <label>OpenCode API Key</label>
+                <label>
+                  OpenCode API Key 
+                  <a href="#" onClick={(e) => { e.preventDefault(); OpenBrowserURL("https://opencode.org"); }} className="get-key-link">Get Key ↗</a>
+                </label>
                 <input 
                   type="password" 
                   value={apiKeys.openCodeApiKey} 
@@ -1926,7 +1932,10 @@ function App() {
                 />
               </div>
               <div className="form-group">
-                <label>OpenRouter API Key</label>
+                <label>
+                  OpenRouter API Key 
+                  <a href="#" onClick={(e) => { e.preventDefault(); OpenBrowserURL("https://openrouter.ai/keys"); }} className="get-key-link">Get Key ↗</a>
+                </label>
                 <input 
                   type="password" 
                   value={apiKeys.openRouterApiKey} 

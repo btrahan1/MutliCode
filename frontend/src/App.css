@@ -1729,3 +1729,17 @@ body {
 .terminal-panel-body .xterm {
   height: 100%;
 }
+
+.get-key-link {
+  font-size: 0.75rem;
+  color: var(--accent-cyan);
+  text-decoration: none;
+  margin-left: 8px;
+  opacity: 0.85;
+  transition: opacity 0.2s;
+}
+
+.get-key-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
