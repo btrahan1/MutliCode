@@ -37,7 +37,7 @@ type AgentEvent struct {
 }
 
 // StartAgent launches the background agent execution loop.
-func (a *App) StartAgent(tabID string, workspacePath string, modelName string, prompt string, history []ChatMessage) {
+func (a *App) StartAgent(tabID string, workspacePath string, modelName string, prompt string, image string, history []ChatMessage) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	a.cancelsMu.Lock()
@@ -61,7 +61,7 @@ func (a *App) StartAgent(tabID string, workspacePath string, modelName string, p
 		a.emitAgentStatus(tabID, "running")
 
 		// Create workspace message history
-		messages := append(history, ChatMessage{Role: "user", Content: prompt})
+		messages := append(history, ChatMessage{Role: "user", Content: prompt, Image: image})
 
 		var currentPlan *AgentPlan
 

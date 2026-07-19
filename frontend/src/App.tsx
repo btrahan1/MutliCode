@@ -138,6 +138,7 @@ function App() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [chatWidth, setChatWidth] = useState(320);
+  const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -790,9 +791,9 @@ function App() {
     if (!activeTab || !activeTab.chatInput || !activeTab.chatInput.trim()) return;
 
     const promptText = activeTab.chatInput;
-    const userMsg = new main.ChatMessage({ role: 'user', content: promptText });
+    const userMsg = new main.ChatMessage({ role: 'user', content: promptText, image: attachedImage || "" });
 
-    const history = activeTab.messages.map(m => ({ role: m.role, content: m.content }));
+    const history = activeTab.messages.map(m => ({ role: m.role, content: m.content, image: (m as any).image || "" }));
 
     setTabs(prev => prev.map(t => {
       if (t.id === activeTab.id) {
@@ -807,8 +808,11 @@ function App() {
       return t;
     }));
 
+    const currentImage = attachedImage;
+    setAttachedImage(null);
+
     try {
-      await StartAgent(activeTab.id, activeTab.path, activeTab.model, promptText, history);
+      await StartAgent(activeTab.id, activeTab.path, activeTab.model, promptText, currentImage || "", history);
     } catch (err) {
       setTabs(prev => prev.map(t => {
         if (t.id === activeTab.id) {
@@ -823,6 +827,24 @@ function App() {
         }
         return t;
       }));
+    }
+  };
+
+  const handleChatPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const items = e.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        const file = items[i].getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            if (event.target?.result) {
+              setAttachedImage(event.target.result as string);
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+      }
     }
   };
 
@@ -1476,6 +1498,11 @@ function App() {
               <div className="chat-messages-container">
                 {activeTab.messages.map((m, idx) => (
                   <div key={idx} className={`message-bubble ${m.role}`}>
+                    {(m as any).image && (
+                      <div className="message-image-attachment">
+                        <img src={(m as any).image} alt="Attachment" className="chat-attached-image" />
+                      </div>
+                    )}
                     <div className="message-content">{renderMessageContent(m.content)}</div>
                   </div>
                 ))}
@@ -1503,13 +1530,21 @@ function App() {
                 </div>
               )}
 
+              {attachedImage && (
+                <div className="chat-image-preview-bar">
+                  <img src={attachedImage} alt="Preview" className="chat-preview-thumbnail" />
+                  <button className="remove-preview-btn" onClick={() => setAttachedImage(null)}>×</button>
+                </div>
+              )}
+
               <div className="chat-input-area">
                 <input
                   type="text"
-                  placeholder={(activeTab.agentStatus === 'running' || activeTab.agentStatus === 'waiting_for_command_approval' || activeTab.agentStatus === 'waiting_for_approval') ? "Agent is working..." : "Instruct the agent..."}
+                  placeholder={(activeTab.agentStatus === 'running' || activeTab.agentStatus === 'waiting_for_command_approval' || activeTab.agentStatus === 'waiting_for_approval') ? "Agent is working..." : "Instruct the agent... (Paste image supported)"}
                   value={activeTab.chatInput || ""}
                   onChange={(e) => handleChatInputChange(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && activeTab.agentStatus !== 'running' && activeTab.agentStatus !== 'waiting_for_command_approval' && handleSendMessage()}
+                  onPaste={handleChatPaste}
                   className="chat-input"
                   disabled={activeTab.agentStatus === 'running' || activeTab.agentStatus === 'waiting_for_command_approval' || activeTab.agentStatus === 'waiting_for_approval'}
                 />

@@ -50,7 +50,7 @@ export function SelectWorkspace():Promise<string>;
 
 export function SendChatMessage(arg1:string,arg2:string,arg3:Array<main.ChatMessage>,arg4:string):Promise<string>;
 
-export function StartAgent(arg1:string,arg2:string,arg3:string,arg4:string,arg5:Array<main.ChatMessage>):Promise<void>;
+export function StartAgent(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:Array<main.ChatMessage>):Promise<void>;
 
 export function StopAgent(arg1:string):Promise<void>;
 

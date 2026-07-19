@@ -13,10 +13,17 @@ import (
 type ChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+	Image   string `json:"image,omitempty"` // Base64 data URL
+}
+
+type GeminiInlineData struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"`
 }
 
 type GeminiPart struct {
-	Text string `json:"text"`
+	Text       string            `json:"text,omitempty"`
+	InlineData *GeminiInlineData `json:"inlineData,omitempty"`
 }
 
 type GeminiContent struct {
@@ -130,16 +137,38 @@ func callGemini(modelName string, prompt string, history []ChatMessage, systemPr
 		if msg.Role == "assistant" {
 			role = "model"
 		}
+		
+		parts := []GeminiPart{{Text: msg.Content}}
+		if msg.Image != "" {
+			mimeType := "image/png"
+			base64Data := msg.Image
+			if idx := strings.Index(msg.Image, ";base64,"); idx != -1 {
+				mimeType = strings.TrimPrefix(msg.Image[:idx], "data:")
+				base64Data = msg.Image[idx+8:]
+			}
+			parts = append(parts, GeminiPart{
+				InlineData: &GeminiInlineData{
+					MimeType: mimeType,
+					Data:     base64Data,
+				},
+			})
+		}
+
 		contents = append(contents, GeminiContent{
 			Role:  role,
-			Parts: []GeminiPart{{Text: msg.Content}},
+			Parts: parts,
 		})
 	}
 
-	contents = append(contents, GeminiContent{
-		Role:  "user",
-		Parts: []GeminiPart{{Text: prompt}},
-	})
+	// Handled prompt with potential image inside history construction in StartAgent
+	// But in case SendChatMessage is called with a separate prompt directly,
+	// we append it here:
+	if prompt != "" {
+		contents = append(contents, GeminiContent{
+			Role:  "user",
+			Parts: []GeminiPart{{Text: prompt}},
+		})
+	}
 
 	reqBody := map[string]interface{}{
 		"contents": contents,

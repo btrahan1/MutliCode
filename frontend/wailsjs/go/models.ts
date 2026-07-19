@@ -63,6 +63,7 @@ export namespace main {
 	export class ChatMessage {
 	    role: string;
 	    content: string;
+	    image?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatMessage(source);
@@ -72,6 +73,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.role = source["role"];
 	        this.content = source["content"];
+	        this.image = source["image"];
 	    }
 	}
 	export class FileNode {
