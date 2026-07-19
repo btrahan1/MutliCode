@@ -116,10 +116,15 @@ func ParseGoFile(fullPath, relPath string) ([]Tag, []string, error) {
 
 // Regex definitions for other languages
 var (
-	pyDefRegex = regexp.MustCompile(`^\s*(def|class)\s+([a-zA-Z_][a-zA-Z0-9_]*)`)
-	jsDefRegex = regexp.MustCompile(`^\s*(class|interface|type|function)\s+([a-zA-Z_][a-zA-Z0-9_]*)`)
-	arrowRegex = regexp.MustCompile(`^\s*(const|let|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(async\s*)?(\([^)]*\)|[a-zA-Z_][a-zA-Z0-9_]*)\s*=>`)
-	wordRegex  = regexp.MustCompile(`[a-zA-Z_][a-zA-Z0-9_]*`)
+	pyDefRegex   = regexp.MustCompile(`^\s*(def|class)\s+([a-zA-Z_][a-zA-Z0-9_]*)`)
+	jsDefRegex   = regexp.MustCompile(`^\s*(class|interface|type|function)\s+([a-zA-Z_][a-zA-Z0-9_]*)`)
+	arrowRegex   = regexp.MustCompile(`^\s*(const|let|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(async\s*)?(\([^)]*\)|[a-zA-Z_][a-zA-Z0-9_]*)\s*=>`)
+	csTypeDefRegex = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial)\s+)*(class|interface|struct|enum|namespace|record)\s+([a-zA-Z_][a-zA-Z0-9_]*)`)
+	csMethodDefRegex = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|static|async|override|virtual|new|partial)\s+)+([a-zA-Z0-9_<>\\[\\]?]+)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
+	cppTypeDefRegex = regexp.MustCompile(`^\s*(class|struct|union|enum|namespace)\s+([a-zA-Z_][a-zA-Z0-9_]*)`)
+	cppMethodDefRegex = regexp.MustCompile(`^\s*(?:(?:inline|static|virtual|explicit|friend|const|constexpr)\s+)*([a-zA-Z0-9_<>\*&]+)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
+	cppMacroDefRegex = regexp.MustCompile(`^\s*#\s*define\s+([a-zA-Z_][a-zA-Z0-9_]*)`)
+	wordRegex    = regexp.MustCompile(`[a-zA-Z_][a-zA-Z0-9_]*`)
 )
 
 var commonKeywords = map[string]bool{
@@ -127,9 +132,14 @@ var commonKeywords = map[string]bool{
 	"from": true, "const": true, "let": true, "var": true, "class": true, "function": true,
 	"interface": true, "type": true, "def": true, "self": true, "this": true, "nil": true,
 	"null": true, "true": true, "false": true, "async": true, "await": true, "default": true,
+	"using": true, "namespace": true, "public": true, "private": true, "protected": true,
+	"internal": true, "void": true, "int": true, "string": true, "bool": true, "float": true,
+	"double": true, "struct": true, "enum": true, "new": true, "static": true, "virtual": true,
+	"override": true, "switch": true, "case": true, "break": true, "continue": true,
+	"define": true, "include": true,
 }
 
-// ParseRegexFile parses JS/TS/Py files using regular expressions.
+// ParseRegexFile parses JS/TS/Py/CS/CPP files using regular expressions.
 func ParseRegexFile(fullPath, relPath string) ([]Tag, []string, error) {
 	bytes, err := os.ReadFile(fullPath)
 	if err != nil {
@@ -172,6 +182,57 @@ func ParseRegexFile(fullPath, relPath string) ([]Tag, []string, error) {
 				Line:       lineNum,
 				SymbolName: sym,
 				Signature:  fmt.Sprintf("const %s = =>", sym),
+				Kind:       "def",
+			})
+		} else if match := csTypeDefRegex.FindStringSubmatch(trimmed); match != nil {
+			kind := match[1]
+			sym := match[2]
+			defs = append(defs, Tag{
+				RelPath:    relPath,
+				Line:       lineNum,
+				SymbolName: sym,
+				Signature:  fmt.Sprintf("%s %s", kind, sym),
+				Kind:       "def",
+			})
+		} else if match := csMethodDefRegex.FindStringSubmatch(trimmed); match != nil {
+			sym := match[2]
+			if !commonKeywords[sym] {
+				defs = append(defs, Tag{
+					RelPath:    relPath,
+					Line:       lineNum,
+					SymbolName: sym,
+					Signature:  fmt.Sprintf("method %s()", sym),
+					Kind:       "def",
+				})
+			}
+		} else if match := cppTypeDefRegex.FindStringSubmatch(trimmed); match != nil {
+			kind := match[1]
+			sym := match[2]
+			defs = append(defs, Tag{
+				RelPath:    relPath,
+				Line:       lineNum,
+				SymbolName: sym,
+				Signature:  fmt.Sprintf("%s %s", kind, sym),
+				Kind:       "def",
+			})
+		} else if match := cppMethodDefRegex.FindStringSubmatch(trimmed); match != nil {
+			sym := match[2]
+			if !commonKeywords[sym] {
+				defs = append(defs, Tag{
+					RelPath:    relPath,
+					Line:       lineNum,
+					SymbolName: sym,
+					Signature:  fmt.Sprintf("function %s()", sym),
+					Kind:       "def",
+				})
+			}
+		} else if match := cppMacroDefRegex.FindStringSubmatch(trimmed); match != nil {
+			sym := match[1]
+			defs = append(defs, Tag{
+				RelPath:    relPath,
+				Line:       lineNum,
+				SymbolName: sym,
+				Signature:  fmt.Sprintf("#define %s", sym),
 				Kind:       "def",
 			})
 		}
@@ -238,7 +299,7 @@ func (rme *RepoMapEngine) BuildRepoMap(activeFiles []string, tokenBudget int, is
 
 		if ext == ".go" {
 			defs, refs, _ = ParseGoFile(path, relPath)
-		} else if ext == ".py" || ext == ".js" || ext == ".ts" || ext == ".tsx" {
+		} else if ext == ".py" || ext == ".js" || ext == ".ts" || ext == ".tsx" || ext == ".cs" || ext == ".cpp" || ext == ".hpp" || ext == ".c" || ext == ".h" {
 			defs, refs, _ = ParseRegexFile(path, relPath)
 		} else {
 			return nil

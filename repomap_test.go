@@ -119,6 +119,82 @@ def hash_password(plain):
 	if !foundPlain {
 		t.Errorf("expected to find reference 'plain'")
 	}
+
+	// Test C# parsing
+	csCode := `
+using System;
+namespace App.Services {
+    public interface IAuthService {
+        bool ValidateToken(string token);
+    }
+    public class AuthService : IAuthService {
+        public async Task<bool> ValidateToken(string token) {
+            return true;
+        }
+    }
+}
+`
+	csPath := filepath.Join(tmpDir, "auth.cs")
+	if err := os.WriteFile(csPath, []byte(csCode), 0644); err != nil {
+		t.Fatalf("failed to write cs file: %v", err)
+	}
+
+	csDefs, _, err := ParseRegexFile(csPath, "auth.cs")
+	if err != nil {
+		t.Fatalf("ParseRegexFile for C# failed: %v", err)
+	}
+
+	expectedCsDefs := map[string]bool{
+		"IAuthService":  true,
+		"ValidateToken": true,
+		"AuthService":   true,
+		"App":           true,
+	}
+
+	for _, def := range csDefs {
+		if !expectedCsDefs[def.SymbolName] {
+			t.Errorf("unexpected C# symbol: %s", def.SymbolName)
+		}
+	}
+
+	// Test C++ parsing
+	cppCode := `
+#include <iostream>
+#define MAX_BUFFER 1024
+namespace Engine {
+    struct Vertex {
+        float x, y, z;
+    };
+    class Renderer {
+        void RenderScene() {
+            std::cout << MAX_BUFFER << std::endl;
+        }
+    };
+}
+`
+	cppPath := filepath.Join(tmpDir, "render.cpp")
+	if err := os.WriteFile(cppPath, []byte(cppCode), 0644); err != nil {
+		t.Fatalf("failed to write cpp file: %v", err)
+	}
+
+	cppDefs, _, err := ParseRegexFile(cppPath, "render.cpp")
+	if err != nil {
+		t.Fatalf("ParseRegexFile for C++ failed: %v", err)
+	}
+
+	expectedCppDefs := map[string]bool{
+		"MAX_BUFFER":  true,
+		"Vertex":       true,
+		"Renderer":     true,
+		"RenderScene":  true,
+		"Engine":       true,
+	}
+
+	for _, def := range cppDefs {
+		if !expectedCppDefs[def.SymbolName] {
+			t.Errorf("unexpected C++ symbol: %s", def.SymbolName)
+		}
+	}
 }
 
 func TestBuildRepoMap(t *testing.T) {
