@@ -830,6 +830,43 @@ function App() {
     }
   };
 
+  const handleContinueClick = async () => {
+    if (!activeTab) return;
+    const promptText = "continue";
+    const userMsg = new main.ChatMessage({ role: 'user', content: promptText, image: "" });
+    const history = activeTab.messages.map(m => ({ role: m.role, content: m.content, image: (m as any).image || "" }));
+
+    setTabs(prev => prev.map(t => {
+      if (t.id === activeTab.id) {
+        return {
+          ...t,
+          messages: [...t.messages, userMsg],
+          agentStatus: 'running',
+          agentGoal: promptText
+        };
+      }
+      return t;
+    }));
+
+    try {
+      await StartAgent(activeTab.id, activeTab.path, activeTab.model, promptText, "", history);
+    } catch (err) {
+      setTabs(prev => prev.map(t => {
+        if (t.id === activeTab.id) {
+          return {
+            ...t,
+            agentStatus: 'idle',
+            messages: [
+              ...t.messages,
+              new main.ChatMessage({ role: 'assistant', content: `[Error starting agent]: ${err}` })
+            ]
+          };
+        }
+        return t;
+      }));
+    }
+  };
+
   const handleChatPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     const items = e.clipboardData.items;
     for (let i = 0; i < items.length; i++) {
@@ -1553,9 +1590,14 @@ function App() {
                     <svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h12V5H6v14z"/></svg>
                   </button>
                 ) : (
-                  <button className="send-btn" onClick={handleSendMessage} title="Send Message">
-                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-                  </button>
+                  <>
+                    <button className="continue-btn" onClick={handleContinueClick} title="Send 'continue'">
+                      ▶️ Continue
+                    </button>
+                    <button className="send-btn" onClick={handleSendMessage} title="Send Message">
+                      <svg viewBox="0 0 24 24"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                    </button>
+                  </>
                 )}
               </div>
               {toast && (
