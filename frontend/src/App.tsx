@@ -22,7 +22,8 @@ import {
   RunProject,
   StopProject,
   OpenBrowserURL,
-  GetProjectSourceString
+  GetProjectSourceString,
+  GetRepoGraph
 } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { main } from "../wailsjs/go/models";
@@ -60,11 +61,12 @@ interface ProjectTab {
   agentGoal: string;
   chatInput: string;
   techStack?: string[];
-  activeView?: 'editor' | 'plan';
+  activeView?: 'editor' | 'plan' | 'map';
   agentPlan?: AgentPlan | null;
   pendingCommand?: string | null;
   projectStatus?: 'idle' | 'starting' | 'running' | 'error';
   projectUrl?: string | null;
+  graphData?: RepoGraph | null;
 }
 
 const TECH_STACKS = ["Wails", "Go", "React", "TypeScript", "HTML", ".NET", "Blazor", "Winforms"];
@@ -359,7 +361,8 @@ function App() {
                 agentPlan: null,
                 pendingCommand: null,
                 projectStatus: 'idle',
-                projectUrl: null
+                projectUrl: null,
+                graphData: null
               });
             } catch (treeErr) {
               console.error(`Failed to restore workspace at ${path}:`, treeErr);
@@ -470,7 +473,8 @@ function App() {
       agentPlan: null,
       pendingCommand: null,
       projectStatus: 'idle',
-      projectUrl: null
+      projectUrl: null,
+      graphData: null
     };
     setTabs([welcome]);
     setActiveTabId('welcome');
@@ -513,7 +517,8 @@ function App() {
         agentPlan: null,
         pendingCommand: null,
         projectStatus: 'idle',
-        projectUrl: null
+        projectUrl: null,
+        graphData: null
       };
 
       setTabs(prev => {
@@ -565,7 +570,8 @@ function App() {
         agentPlan: null,
         pendingCommand: null,
         projectStatus: 'idle',
-        projectUrl: null
+        projectUrl: null,
+        graphData: null
       };
 
       setTabs(prev => {
@@ -1101,9 +1107,17 @@ function App() {
       .catch((err) => showToast(`Failed to harvest source: ${err}`, "error"));
   };
 
-  const handleSwitchView = (view: 'editor' | 'plan') => {
+  const handleSwitchView = (view: 'editor' | 'plan' | 'map') => {
     if (!activeTab) return;
     setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, activeView: view } : t));
+
+    if (view === 'map' && activeTab.path) {
+      GetRepoGraph(activeTab.path)
+        .then((data) => {
+          setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, graphData: data } : t));
+        })
+        .catch(err => showToast(`Failed to generate code map: ${err}`, "error"));
+    }
   };
 
   const handleApprovePlan = () => {
@@ -1357,6 +1371,14 @@ function App() {
                       📋 Execution Plan
                     </button>
                   )}
+                  {activeTab.path && (
+                    <button 
+                      className={`editor-tab-btn ${(activeTab.activeView === 'map') ? 'active' : ''}`}
+                      onClick={() => handleSwitchView('map')}
+                    >
+                      🗺️ Code Map
+                    </button>
+                  )}
                 </div>
                 {(!activeTab.activeView || activeTab.activeView === 'editor') && (
                   <>
@@ -1378,6 +1400,22 @@ function App() {
               <div className="editor-wrapper">
                 {activeTab.activeView === 'plan' && activeTab.agentPlan ? (
                   renderPlanView()
+                ) : activeTab.activeView === 'map' ? (
+                  activeTab.graphData ? (
+                    <RepoGraphView 
+                      data={activeTab.graphData} 
+                      onNodeDoubleClick={(path) => {
+                        const name = path.split('/').pop() || path;
+                        handleSelectFile({ name, path, isDir: false, children: [] });
+                        handleSwitchView('editor');
+                      }}
+                    />
+                  ) : (
+                    <div className="empty-graph-state">
+                      <div className="agent-spinner"></div>
+                      <p style={{ marginTop: '12px' }}>Generating Code Map Graph...</p>
+                    </div>
+                  )
                 ) : activeTab.activeFile ? (
                   <Editor
                     height="100%"
@@ -1741,3 +1779,254 @@ function App() {
 }
 
 export default App;
+
+interface GraphNode {
+  id: string;
+  name: string;
+  score: number;
+  language: string;
+  x?: number;
+  y?: number;
+  vx?: number;
+  vy?: number;
+}
+
+interface GraphLink {
+  source: string;
+  target: string;
+  weight: number;
+}
+
+interface RepoGraph {
+  nodes: GraphNode[];
+  links: GraphLink[];
+}
+
+const RepoGraphView = ({ data, onNodeDoubleClick }: { data: RepoGraph, onNodeDoubleClick: (path: string) => void }) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
+  const dragNodeRef = useRef<GraphNode | null>(null);
+  const nodesRef = useRef<GraphNode[]>([]);
+  const linksRef = useRef<GraphLink[]>([]);
+  const animationRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!data) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const width = canvas.width;
+    const height = canvas.height;
+
+    nodesRef.current = data.nodes.map(n => ({
+      ...n,
+      x: n.x ?? (width / 2 + (Math.random() - 0.5) * 200),
+      y: n.y ?? (height / 2 + (Math.random() - 0.5) * 200),
+      vx: n.vx ?? 0,
+      vy: n.vy ?? 0
+    }));
+    linksRef.current = data.links;
+  }, [data]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let isRunning = true;
+
+    const tick = () => {
+      if (!isRunning) return;
+      const width = canvas.width;
+      const height = canvas.height;
+      const nodes = nodesRef.current;
+      const links = linksRef.current;
+
+      // 1. Force Simulation
+      for (let i = 0; i < nodes.length; i++) {
+        const u = nodes[i];
+        for (let j = i + 1; j < nodes.length; j++) {
+          const v = nodes[j];
+          const dx = v.x! - u.x!;
+          const dy = v.y! - u.y!;
+          const distSq = dx * dx + dy * dy || 1;
+          const dist = Math.sqrt(distSq);
+          if (dist < 150) {
+            const force = (150 - dist) * 0.04;
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+            u.vx! -= fx;
+            u.vy! -= fy;
+            v.vx! += fx;
+            v.vy! += fy;
+          }
+        }
+      }
+
+      links.forEach(link => {
+        const sourceNode = nodes.find(n => n.id === link.source);
+        const targetNode = nodes.find(n => n.id === link.target);
+        if (sourceNode && targetNode) {
+          const dx = targetNode.x! - sourceNode.x!;
+          const dy = targetNode.y! - sourceNode.y!;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const force = (dist - 100) * 0.02;
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          sourceNode.vx! += fx;
+          sourceNode.vy! += fy;
+          targetNode.vx! -= fx;
+          targetNode.vy! -= fy;
+        }
+      });
+
+      nodes.forEach(node => {
+        if (node === dragNodeRef.current) return;
+        const dx = width / 2 - node.x!;
+        const dy = height / 2 - node.y!;
+        node.vx! += dx * 0.003;
+        node.vy! += dy * 0.003;
+
+        node.vx! *= 0.85;
+        node.vy! *= 0.85;
+
+        node.x! += node.vx!;
+        node.y! += node.vy!;
+      });
+
+      // 2. Rendering
+      ctx.clearRect(0, 0, width, height);
+
+      links.forEach(link => {
+        const s = nodes.find(n => n.id === link.source);
+        const t = nodes.find(n => n.id === link.target);
+        if (s && t) {
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(s.x!, s.y!);
+          ctx.lineTo(t.x!, t.y!);
+          ctx.stroke();
+        }
+      });
+
+      nodes.forEach(node => {
+        const radius = 6 + Math.min(node.score * 60, 24);
+        ctx.beginPath();
+        ctx.arc(node.x!, node.y!, radius, 0, 2 * Math.PI);
+
+        let color = '#6b7280';
+        switch (node.language) {
+          case 'Go': color = '#00f2fe'; break;
+          case 'C#': color = '#a855f7'; break;
+          case 'TypeScript': case 'TypeScript React': case 'JavaScript': color = '#3b82f6'; break;
+          case 'C++': case 'C': color = '#f97316'; break;
+          case 'HTML': color = '#ec4899'; break;
+          case 'CSS': color = '#eab308'; break;
+          default: color = '#6b7280';
+        }
+
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = node === hoveredNode ? 12 : 2;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        if (node === hoveredNode || radius > 12) {
+          ctx.fillStyle = '#f3f4f6';
+          ctx.font = '10px var(--font-display)';
+          ctx.textAlign = 'center';
+          ctx.fillText(node.name, node.x!, node.y! - radius - 5);
+        }
+      });
+
+      animationRef.current = requestAnimationFrame(tick);
+    };
+
+    tick();
+
+    return () => {
+      isRunning = false;
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
+  }, [hoveredNode]);
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const clicked = nodesRef.current.find(n => {
+      const radius = 6 + Math.min(n.score * 60, 24);
+      const dx = n.x! - x;
+      const dy = n.y! - y;
+      return dx * dx + dy * dy <= radius * radius;
+    });
+
+    if (clicked) {
+      dragNodeRef.current = clicked;
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if (dragNodeRef.current) {
+      dragNodeRef.current.x = x;
+      dragNodeRef.current.y = y;
+      dragNodeRef.current.vx = 0;
+      dragNodeRef.current.vy = 0;
+    }
+
+    const hover = nodesRef.current.find(n => {
+      const radius = 6 + Math.min(n.score * 60, 24);
+      const dx = n.x! - x;
+      const dy = n.y! - y;
+      return dx * dx + dy * dy <= radius * radius;
+    });
+
+    setHoveredNode(hover || null);
+  };
+
+  const handleMouseUp = () => {
+    dragNodeRef.current = null;
+  };
+
+  const handleDoubleClick = () => {
+    if (hoveredNode) {
+      onNodeDoubleClick(hoveredNode.id);
+    }
+  };
+
+  return (
+    <div className="map-view-container">
+      <canvas 
+        ref={canvasRef} 
+        width={750} 
+        height={500}
+        className="graph-canvas"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onDoubleClick={handleDoubleClick}
+      />
+      <div className="graph-legend">
+        <span><span className="dot go"></span> Go</span>
+        <span><span className="dot cs"></span> C#</span>
+        <span><span className="dot js"></span> TS / JS</span>
+        <span><span className="dot cpp"></span> C++ / C</span>
+        <span><span className="dot html"></span> HTML / CSS</span>
+      </div>
+      <div className="graph-instructions">
+        <span>💡 Drag nodes to interact. Double-click to open in Code Editor.</span>
+      </div>
+    </div>
+  );
+};

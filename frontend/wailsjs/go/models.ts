@@ -110,6 +110,40 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class GraphLink {
+	    source: string;
+	    target: string;
+	    weight: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new GraphLink(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	        this.target = source["target"];
+	        this.weight = source["weight"];
+	    }
+	}
+	export class GraphNode {
+	    id: string;
+	    name: string;
+	    score: number;
+	    language: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GraphNode(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.score = source["score"];
+	        this.language = source["language"];
+	    }
+	}
 	export class ProjectSettings {
 	    techStack: string[];
 	
@@ -121,6 +155,38 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.techStack = source["techStack"];
 	    }
+	}
+	export class RepoGraph {
+	    nodes: GraphNode[];
+	    links: GraphLink[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RepoGraph(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodes = this.convertValues(source["nodes"], GraphNode);
+	        this.links = this.convertValues(source["links"], GraphLink);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

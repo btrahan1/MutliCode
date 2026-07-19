@@ -22,6 +22,8 @@ export function GetProjectSettings(arg1:string):Promise<main.ProjectSettings>;
 
 export function GetProjectSourceString(arg1:string):Promise<string>;
 
+export function GetRepoGraph(arg1:string):Promise<main.RepoGraph>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function IsPathIgnored(arg1:string,arg2:string):Promise<boolean>;

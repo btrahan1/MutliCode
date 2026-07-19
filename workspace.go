@@ -521,4 +521,155 @@ func (a *App) GetProjectSourceString(projectPath string) (string, error) {
 	return sb.String(), nil
 }
 
+type GraphNode struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	Score    float64 `json:"score"`
+	Language string  `json:"language"`
+}
+
+type GraphLink struct {
+	Source string  `json:"source"`
+	Target string  `json:"target"`
+	Weight float64 `json:"weight"`
+}
+
+type RepoGraph struct {
+	Nodes []GraphNode `json:"nodes"`
+	Links []GraphLink `json:"links"`
+}
+
+func (a *App) GetRepoGraph(projectPath string) (*RepoGraph, error) {
+	if projectPath == "" {
+		return nil, fmt.Errorf("project path is empty")
+	}
+
+	allDefs := make(map[string][]Tag)
+	symbolToDefFile := make(map[string]string)
+	allRefs := make(map[string][]string)
+
+	err := filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if a.IsPathIgnored(projectPath, path) {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(projectPath, path)
+		if err != nil {
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(path))
+		var defs []Tag
+		var refs []string
+
+		if ext == ".go" {
+			defs, refs, _ = ParseGoFile(path, relPath)
+		} else if ext == ".py" || ext == ".js" || ext == ".ts" || ext == ".tsx" || ext == ".cs" || ext == ".cpp" || ext == ".hpp" || ext == ".c" || ext == ".h" {
+			defs, refs, _ = ParseRegexFile(path, relPath)
+		} else {
+			return nil
+		}
+
+		allDefs[relPath] = defs
+		allRefs[relPath] = refs
+		for _, def := range defs {
+			symbolToDefFile[def.SymbolName] = relPath
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	nodes := make(map[string]bool)
+	edges := make(map[string]map[string]float64)
+
+	for file := range allDefs {
+		nodes[file] = true
+	}
+
+	for file, refs := range allRefs {
+		for _, ref := range refs {
+			if targetFile, exists := symbolToDefFile[ref]; exists && targetFile != file {
+				if _, ok := edges[file]; !ok {
+					edges[file] = make(map[string]float64)
+				}
+				edges[file][targetFile] += 1.0
+			}
+		}
+	}
+
+	damping := 0.85
+	maxIterations := 20
+	ranks := computePageRank(nodes, edges, nil, damping, maxIterations)
+
+	var graphNodes []GraphNode
+	for file := range nodes {
+		score := ranks[file]
+		if score == 0 {
+			score = 0.15
+		}
+		graphNodes = append(graphNodes, GraphNode{
+			ID:       filepath.ToSlash(file),
+			Name:     filepath.Base(file),
+			Score:    score,
+			Language: detectLanguage(file),
+		})
+	}
+
+	var graphLinks []GraphLink
+	for source, toMap := range edges {
+		for target, weight := range toMap {
+			graphLinks = append(graphLinks, GraphLink{
+				Source: filepath.ToSlash(source),
+				Target: filepath.ToSlash(target),
+				Weight: weight,
+			})
+		}
+	}
+
+	return &RepoGraph{
+		Nodes: graphNodes,
+		Links: graphLinks,
+	}, nil
+}
+
+func detectLanguage(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".go":
+		return "Go"
+	case ".cs":
+		return "C#"
+	case ".ts":
+		return "TypeScript"
+	case ".tsx":
+		return "TypeScript React"
+	case ".js", ".jsx":
+		return "JavaScript"
+	case ".cpp", ".hpp", ".cc", ".cxx":
+		return "C++"
+	case ".c", ".h":
+		return "C"
+	case ".py":
+		return "Python"
+	case ".rs":
+		return "Rust"
+	case ".html", ".htm", ".razor":
+		return "HTML"
+	case ".css":
+		return "CSS"
+	case ".json":
+		return "JSON"
+	case ".md":
+		return "Markdown"
+	default:
+		return "Other"
+	}
+}
+
 

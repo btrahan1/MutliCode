@@ -42,6 +42,10 @@ export function GetProjectSourceString(arg1) {
   return window['go']['main']['App']['GetProjectSourceString'](arg1);
 }
 
+export function GetRepoGraph(arg1) {
+  return window['go']['main']['App']['GetRepoGraph'](arg1);
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
