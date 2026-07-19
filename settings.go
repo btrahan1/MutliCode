@@ -27,6 +27,7 @@ type AppSettings struct {
 	UseRepoMap                bool                     `json:"useRepoMap"`
 	RepoMapTokens             int                      `json:"repoMapTokens"`
 	EnforcePlanning           bool                     `json:"enforcePlanning"`
+	EnableDiffViewer          bool                     `json:"enableDiffViewer"`
 }
 
 func getSettingsPath() (string, error) {
@@ -96,6 +97,7 @@ func (a *App) LoadSettings() (AppSettings, error) {
 	settings.EnableSearchCode = true
 	settings.EnableContextCompression = true
 	settings.EnforcePlanning = true
+	settings.EnableDiffViewer = true
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		importFreeCodeSettings(&settings)

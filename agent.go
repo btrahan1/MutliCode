@@ -28,12 +28,13 @@ type AgentPlan struct {
 
 type AgentEvent struct {
 	TabID    string        `json:"tabId"`
-	Type     string        `json:"type"` // "message" | "status" | "history_update" | "plan" | "command_approval"
+	Type     string        `json:"type"` // "message" | "status" | "history_update" | "plan" | "command_approval" | "diff_proposal"
 	Message  ChatMessage   `json:"message"`
 	Messages []ChatMessage `json:"messages"`
-	Status   string        `json:"status"` // "idle" | "running" | "completed" | "waiting_for_approval" | "waiting_for_command_approval"
+	Status   string        `json:"status"` // "idle" | "running" | "completed" | "waiting_for_approval" | "waiting_for_command_approval" | "waiting_for_diff_approval"
 	Plan     *AgentPlan    `json:"plan,omitempty"`
 	Command  string        `json:"command,omitempty"`
+	FilePath string        `json:"filePath,omitempty"`
 }
 
 // StartAgent launches the background agent execution loop.
@@ -335,17 +336,17 @@ If you have finished the task, output a clear wrap-up explanation without any to
 
 					if approvalResult == "approved" {
 						a.emitAgentStatus(tabID, "running")
-						toolOutput = a.executeTool(workspacePath, toolCall)
+						toolOutput = a.executeTool(tabID, workspacePath, toolCall)
 					} else {
 						toolOutput = fmt.Sprintf("Error: Command '%s' was denied by the user due to safety policies.", toolCall.Cmd)
 						a.emitAgentStatus(tabID, "running")
 					}
 				} else {
-					toolOutput = a.executeTool(workspacePath, toolCall)
+					toolOutput = a.executeTool(tabID, workspacePath, toolCall)
 				}
 			} else {
 				// 4. Execute tool call
-				toolOutput = a.executeTool(workspacePath, toolCall)
+				toolOutput = a.executeTool(tabID, workspacePath, toolCall)
 			}
 
 			// Emit tool result as user prompt for next iteration
@@ -485,7 +486,7 @@ func parseToolCall(text string) *ParsedTool {
 	return &tool
 }
 
-func (a *App) executeTool(workspacePath string, tool *ParsedTool) string {
+func (a *App) executeTool(tabID string, workspacePath string, tool *ParsedTool) string {
 	switch tool.Name {
 	case "read_file":
 		content, err := a.GetFileContent(workspacePath, tool.Path)
@@ -648,17 +649,25 @@ func (a *App) executeTool(workspacePath string, tool *ParsedTool) string {
 			finalContent = newSearchArea
 		}
 
-		err = os.WriteFile(filePath, []byte(finalContent), 0644)
+		err = a.requestDiffApproval(tabID, filePath, tool.Path, originalContent, finalContent)
 		if err != nil {
-			return fmt.Sprintf("Error writing file changes: %v", err)
+			return fmt.Sprintf("Error: %v", err)
 		}
-
+		
 		return fmt.Sprintf("Success: Replaced target text in '%s' successfully.", tool.Path)
 
 	case "write_file":
-		err := a.SaveFileContent(workspacePath, tool.Path, tool.Content)
+		filePath := filepath.Join(workspacePath, tool.Path)
+		originalContent := ""
+		if _, statErr := os.Stat(filePath); statErr == nil {
+			if data, readErr := os.ReadFile(filePath); readErr == nil {
+				originalContent = string(data)
+			}
+		}
+
+		err := a.requestDiffApproval(tabID, filePath, tool.Path, originalContent, tool.Content)
 		if err != nil {
-			return fmt.Sprintf("Error writing file: %v", err)
+			return fmt.Sprintf("Error: %v", err)
 		}
 		return fmt.Sprintf("Successfully wrote file: %s", tool.Path)
 
@@ -906,4 +915,59 @@ func (a *App) emitAgentCommandApproval(tabID string, command string, status stri
 		Status:  status,
 		Command: command,
 	})
+}
+
+func (a *App) requestDiffApproval(tabID string, filePath string, relPath string, original string, proposed string) error {
+	appSettings, err := a.LoadSettings()
+	if err != nil || !appSettings.EnableDiffViewer {
+		// YOLO mode: Write directly
+		return os.WriteFile(filePath, []byte(proposed), 0644)
+	}
+
+	ch := make(chan string)
+	a.diffApprovalsMu.Lock()
+	a.diffApprovals[tabID] = ch
+	a.diffApprovalsMu.Unlock()
+
+	a.pendingDiffsMu.Lock()
+	a.pendingDiffs[tabID] = &DiffProposal{
+		FilePath:        filepath.ToSlash(relPath),
+		OriginalContent: original,
+		ProposedContent: proposed,
+	}
+	a.pendingDiffsMu.Unlock()
+
+	defer func() {
+		a.diffApprovalsMu.Lock()
+		delete(a.diffApprovals, tabID)
+		a.diffApprovalsMu.Unlock()
+
+		a.pendingDiffsMu.Lock()
+		delete(a.pendingDiffs, tabID)
+		a.pendingDiffsMu.Unlock()
+	}()
+
+	// Emit event to frontend
+	runtime.EventsEmit(a.ctx, "agent:diff_proposal", AgentEvent{
+		TabID:    tabID,
+		Type:     "diff_proposal",
+		Status:   "waiting_for_diff_approval",
+		FilePath: filepath.ToSlash(relPath),
+	})
+	a.emitAgentStatus(tabID, "waiting_for_diff_approval")
+
+	// Block until approved or rejected
+	action := <-ch
+	if action == "approve" {
+		err = os.WriteFile(filePath, []byte(proposed), 0644)
+		if err != nil {
+			return fmt.Errorf("failed to save approved edits: %w", err)
+		}
+		a.emitAgentStatus(tabID, "running")
+		return nil
+	}
+
+	// Rejected
+	a.emitAgentStatus(tabID, "running")
+	return fmt.Errorf("user rejected proposed changes to file: %s", relPath)
 }

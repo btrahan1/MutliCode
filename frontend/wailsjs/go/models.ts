@@ -17,6 +17,7 @@ export namespace main {
 	    useRepoMap: boolean;
 	    repoMapTokens: number;
 	    enforcePlanning: boolean;
+	    enableDiffViewer: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -40,6 +41,7 @@ export namespace main {
 	        this.useRepoMap = source["useRepoMap"];
 	        this.repoMapTokens = source["repoMapTokens"];
 	        this.enforcePlanning = source["enforcePlanning"];
+	        this.enableDiffViewer = source["enableDiffViewer"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -74,6 +76,22 @@ export namespace main {
 	        this.role = source["role"];
 	        this.content = source["content"];
 	        this.image = source["image"];
+	    }
+	}
+	export class DiffProposal {
+	    filePath: string;
+	    originalContent: string;
+	    proposedContent: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiffProposal(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.filePath = source["filePath"];
+	        this.originalContent = source["originalContent"];
+	        this.proposedContent = source["proposedContent"];
 	    }
 	}
 	export class FileNode {

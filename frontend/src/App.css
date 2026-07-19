@@ -1572,3 +1572,87 @@ body {
   object-fit: contain;
   display: block;
 }
+
+/* Diff View Styles */
+.diff-view-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--bg-main);
+}
+
+.diff-view-header {
+  padding: 16px 20px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.diff-view-title-group h3 {
+  margin: 0 0 4px 0;
+  font-size: 1.05rem;
+  font-family: var(--font-display);
+  color: var(--text-main);
+}
+
+.diff-filename {
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  background: rgba(0, 242, 254, 0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.diff-view-title-group p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.diff-view-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.approve-diff-btn {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+  transition: all 0.2s ease;
+}
+
+.approve-diff-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.3);
+}
+
+.reject-diff-btn {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.reject-diff-btn:hover {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.diff-editor-wrapper {
+  flex: 1;
+  width: 100%;
+  overflow: hidden;
+}

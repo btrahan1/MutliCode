@@ -23,11 +23,14 @@ import {
   StopProject,
   OpenBrowserURL,
   GetProjectSourceString,
-  GetRepoGraph
+  GetRepoGraph,
+  ApproveDiff,
+  RejectDiff,
+  GetPendingDiff
 } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { main } from "../wailsjs/go/models";
-import Editor from '@monaco-editor/react';
+import Editor, { DiffEditor } from '@monaco-editor/react';
 
 interface FileNode {
   name: string;
@@ -57,13 +60,14 @@ interface ProjectTab {
   isDirty: boolean;
   model: string;
   messages: main.ChatMessage[];
-  agentStatus: 'idle' | 'running' | 'completed' | 'waiting_for_approval' | 'waiting_for_command_approval';
+  agentStatus: 'idle' | 'running' | 'completed' | 'waiting_for_approval' | 'waiting_for_command_approval' | 'waiting_for_diff_approval';
   agentGoal: string;
   chatInput: string;
   techStack?: string[];
-  activeView?: 'editor' | 'plan' | 'map';
+  activeView?: 'editor' | 'plan' | 'map' | 'diff';
   agentPlan?: AgentPlan | null;
   pendingCommand?: string | null;
+  pendingDiff?: main.DiffProposal | null;
   projectStatus?: 'idle' | 'starting' | 'running' | 'error';
   projectUrl?: string | null;
   graphData?: RepoGraph | null;
@@ -162,7 +166,8 @@ function App() {
     enableContextCompression: true,
     useRepoMap: false,
     repoMapTokens: 1024,
-    enforcePlanning: true
+    enforcePlanning: true,
+    enableDiffViewer: true
   });
 
   const [contextMenu, setContextMenu] = useState<{
@@ -234,6 +239,34 @@ function App() {
         }
         return t;
       }));
+    });
+
+    // Listen to agent diff proposals
+    EventsOn("agent:diff_proposal", (event: { tabId: string; status: 'waiting_for_diff_approval'; filePath: string }) => {
+      setTabs(prev => prev.map(t => {
+        if (t.id === event.tabId) {
+          return {
+            ...t,
+            agentStatus: event.status,
+            activeView: 'diff'
+          };
+        }
+        return t;
+      }));
+
+      GetPendingDiff(event.tabId)
+        .then((diffData) => {
+          setTabs(prev => prev.map(t => {
+            if (t.id === event.tabId) {
+              return {
+                ...t,
+                pendingDiff: diffData
+              };
+            }
+            return t;
+          }));
+        })
+        .catch(err => console.error("Failed to load proposed diff:", err));
     });
 
     // Listen to project status events
@@ -315,7 +348,8 @@ function App() {
             enableContextCompression: loaded.enableContextCompression !== false,
             useRepoMap: loaded.useRepoMap === true,
             repoMapTokens: loaded.repoMapTokens || 1024,
-            enforcePlanning: loaded.enforcePlanning !== false
+            enforcePlanning: loaded.enforcePlanning !== false,
+            enableDiffViewer: loaded.enableDiffViewer !== false
           });
           setSidebarWidth(loaded.sidebarWidth || 260);
           setChatWidth(loaded.chatWidth || 320);
@@ -361,6 +395,7 @@ function App() {
                 activeView: 'editor',
                 agentPlan: null,
                 pendingCommand: null,
+                pendingDiff: null,
                 projectStatus: 'idle',
                 projectUrl: null,
                 graphData: null
@@ -439,7 +474,8 @@ function App() {
       enableContextCompression: toggles.enableContextCompression,
       useRepoMap: toggles.useRepoMap,
       repoMapTokens: toggles.repoMapTokens,
-      enforcePlanning: toggles.enforcePlanning
+      enforcePlanning: toggles.enforcePlanning,
+      enableDiffViewer: toggles.enableDiffViewer
     };
 
     SaveSettings(settings as any).catch(err => console.error("Failed to save settings:", err));
@@ -473,6 +509,7 @@ function App() {
       activeView: 'editor',
       agentPlan: null,
       pendingCommand: null,
+      pendingDiff: null,
       projectStatus: 'idle',
       projectUrl: null,
       graphData: null
@@ -517,6 +554,7 @@ function App() {
         activeView: 'editor',
         agentPlan: null,
         pendingCommand: null,
+        pendingDiff: null,
         projectStatus: 'idle',
         projectUrl: null,
         graphData: null
@@ -570,6 +608,7 @@ function App() {
         activeView: 'editor',
         agentPlan: null,
         pendingCommand: null,
+        pendingDiff: null,
         projectStatus: 'idle',
         projectUrl: null,
         graphData: null
@@ -1088,6 +1127,44 @@ function App() {
     });
   };
 
+  const renderDiffView = () => {
+    if (!activeTab || !activeTab.pendingDiff) return null;
+    const diff = activeTab.pendingDiff;
+    return (
+      <div className="diff-view-container">
+        <div className="diff-view-header">
+          <div className="diff-view-title-group">
+            <h3>Proposed Edits for <span className="diff-filename">{diff.filePath}</span></h3>
+            <p>Review the changes side-by-side. Approve to apply to disk or reject to discard.</p>
+          </div>
+          <div className="diff-view-actions">
+            <button className="approve-diff-btn" onClick={handleApproveDiff}>
+              ✓ Accept Edits
+            </button>
+            <button className="reject-diff-btn" onClick={handleRejectDiff}>
+              ✕ Reject Edits
+            </button>
+          </div>
+        </div>
+        <div className="diff-editor-wrapper">
+          <DiffEditor
+            height="100%"
+            language={getLanguageFromFilename(diff.filePath)}
+            original={diff.originalContent}
+            modified={diff.proposedContent}
+            theme={theme === 'dark' ? 'vs-dark' : 'light'}
+            options={{
+              readOnly: true,
+              automaticLayout: true,
+              fontSize: 13,
+              renderSideBySide: true
+            }}
+          />
+        </div>
+      </div>
+    );
+  };
+
   // Helper to render tree nodes recursively
   const renderTree = (node: FileNode) => {
     const isCollapsed = collapsedPaths.has(node.path);
@@ -1166,7 +1243,7 @@ function App() {
       .catch((err) => showToast(`Failed to harvest source: ${err}`, "error"));
   };
 
-  const handleSwitchView = (view: 'editor' | 'plan' | 'map') => {
+  const handleSwitchView = (view: 'editor' | 'plan' | 'map' | 'diff') => {
     if (!activeTab) return;
     setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, activeView: view } : t));
 
@@ -1204,6 +1281,54 @@ function App() {
         showToast("Command blocked", "info");
       })
       .catch(err => showToast(`Error: ${err}`, "error"));
+  };
+
+  const handleApproveDiff = () => {
+    if (!activeTab) return;
+    ApproveDiff(activeTab.id)
+      .then(() => {
+        showToast("Proposed edits approved!", "success");
+        setTabs(prev => prev.map(t => {
+          if (t.id === activeTab.id) {
+            return {
+              ...t,
+              agentStatus: 'running',
+              pendingDiff: null,
+              activeView: 'editor'
+            };
+          }
+          return t;
+        }));
+        if (activeTab.activeFile) {
+          GetFileContent(activeTab.path, activeTab.activeFile)
+            .then(content => {
+              setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, fileContent: content, isDirty: false } : t));
+            })
+            .catch(() => {});
+        }
+        refreshFileTree();
+      })
+      .catch((err) => showToast(`Failed to approve: ${err}`, "error"));
+  };
+
+  const handleRejectDiff = () => {
+    if (!activeTab) return;
+    RejectDiff(activeTab.id)
+      .then(() => {
+        showToast("Proposed edits rejected", "info");
+        setTabs(prev => prev.map(t => {
+          if (t.id === activeTab.id) {
+            return {
+              ...t,
+              agentStatus: 'running',
+              pendingDiff: null,
+              activeView: 'editor'
+            };
+          }
+          return t;
+        }));
+      })
+      .catch((err) => showToast(`Failed to reject: ${err}`, "error"));
   };
 
   const handleRunProject = () => {
@@ -1438,6 +1563,14 @@ function App() {
                       🗺️ Code Map
                     </button>
                   )}
+                  {activeTab.pendingDiff && (
+                    <button 
+                      className={`editor-tab-btn ${(activeTab.activeView === 'diff') ? 'active' : ''}`}
+                      onClick={() => handleSwitchView('diff')}
+                    >
+                      🔍 Proposed Edits
+                    </button>
+                  )}
                 </div>
                 {(!activeTab.activeView || activeTab.activeView === 'editor') && (
                   <>
@@ -1475,6 +1608,8 @@ function App() {
                       <p style={{ marginTop: '12px' }}>Generating Code Map Graph...</p>
                     </div>
                   )
+                ) : activeTab.activeView === 'diff' && activeTab.pendingDiff ? (
+                  renderDiffView()
                 ) : activeTab.activeFile ? (
                   <Editor
                     height="100%"
@@ -1717,6 +1852,16 @@ function App() {
                     onChange={(e) => setToggles(prev => ({ ...prev, enforcePlanning: e.target.checked }))}
                   />
                   Enforce Planning Mode (Pause for approval and display checklists)
+                </label>
+              </div>
+              <div className="form-group checkbox-group">
+                <label className="checkbox-label">
+                  <input 
+                    type="checkbox" 
+                    checked={toggles.enableDiffViewer} 
+                    onChange={(e) => setToggles(prev => ({ ...prev, enableDiffViewer: e.target.checked }))}
+                  />
+                  Enable Side-by-Side Diff Editor Approval Gate (YOLO off)
                 </label>
               </div>
               <div className="form-group checkbox-group">
