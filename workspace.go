@@ -36,6 +36,9 @@ type FileNode struct {
 
 // Simple ignore checker for typical workspace noise.
 func isIgnored(name string) bool {
+	if name == "." || name == ".." {
+		return false
+	}
 	ignoredNames := map[string]bool{
 		".git":              true,
 		"node_modules":      true,

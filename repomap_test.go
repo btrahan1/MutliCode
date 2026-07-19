@@ -284,3 +284,40 @@ Here is my plan:
 		t.Errorf("unexpected description: %s", plan2.Tasks[0].Description)
 	}
 }
+
+func TestGetProjectSourceString(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "project-source-test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a dummy source file
+	srcPath := filepath.Join(tmpDir, "main.go")
+	if err := os.WriteFile(srcPath, []byte("package main\nfunc main() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write main.go: %v", err)
+	}
+
+	// Create an ignored file
+	ignoredDir := filepath.Join(tmpDir, "node_modules")
+	if err := os.MkdirAll(ignoredDir, 0755); err != nil {
+		t.Fatalf("failed to create ignored dir: %v", err)
+	}
+	ignoredPath := filepath.Join(ignoredDir, "foo.js")
+	if err := os.WriteFile(ignoredPath, []byte("console.log('foo')"), 0644); err != nil {
+		t.Fatalf("failed to write ignored file: %v", err)
+	}
+
+	app := NewApp()
+	source, err := app.GetProjectSourceString(tmpDir)
+	if err != nil {
+		t.Fatalf("GetProjectSourceString failed: %v", err)
+	}
+
+	if !strings.Contains(source, "main.go") {
+		t.Errorf("expected source to contain main.go: %s", source)
+	}
+	if strings.Contains(source, "node_modules") || strings.Contains(source, "foo.js") {
+		t.Errorf("expected source NOT to contain node_modules or foo.js: %s", source)
+	}
+}
