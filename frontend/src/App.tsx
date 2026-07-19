@@ -151,7 +151,8 @@ function App() {
     enableSearchCode: true,
     enableContextCompression: true,
     useRepoMap: false,
-    repoMapTokens: 1024
+    repoMapTokens: 1024,
+    enforcePlanning: true
   });
 
   const [contextMenu, setContextMenu] = useState<{
@@ -260,7 +261,8 @@ function App() {
             enableSearchCode: loaded.enableSearchCode !== false,
             enableContextCompression: loaded.enableContextCompression !== false,
             useRepoMap: loaded.useRepoMap === true,
-            repoMapTokens: loaded.repoMapTokens || 1024
+            repoMapTokens: loaded.repoMapTokens || 1024,
+            enforcePlanning: loaded.enforcePlanning !== false
           });
           setSidebarWidth(loaded.sidebarWidth || 260);
           setChatWidth(loaded.chatWidth || 320);
@@ -376,7 +378,8 @@ function App() {
       enableSearchCode: toggles.enableSearchCode,
       enableContextCompression: toggles.enableContextCompression,
       useRepoMap: toggles.useRepoMap,
-      repoMapTokens: toggles.repoMapTokens
+      repoMapTokens: toggles.repoMapTokens,
+      enforcePlanning: toggles.enforcePlanning
     };
 
     SaveSettings(settings as any).catch(err => console.error("Failed to save settings:", err));
@@ -1412,6 +1415,16 @@ function App() {
                     onChange={(e) => setToggles(prev => ({ ...prev, enableContextCompression: e.target.checked }))}
                   />
                   Enable Conversation Log Compression (Sliding Window)
+                </label>
+              </div>
+              <div className="form-group checkbox-group">
+                <label className="checkbox-label">
+                  <input 
+                    type="checkbox" 
+                    checked={toggles.enforcePlanning} 
+                    onChange={(e) => setToggles(prev => ({ ...prev, enforcePlanning: e.target.checked }))}
+                  />
+                  Enforce Planning Mode (Pause for approval and display checklists)
                 </label>
               </div>
               <div className="form-group checkbox-group">

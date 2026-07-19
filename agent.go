@@ -192,13 +192,19 @@ You can invoke the following tools using XML blocks. Output ONLY one tool block 
 %s
 
 ### RULES & GUIDELINES:` + (func() string {
+				var rules []string
 				if appSettings.EnableSearchCode {
-					return "\n- **Use search_code to locate code**: If you do not know where a class or function is defined, use <tool name=\"search_code\"> to locate it before reading files."
+					rules = append(rules, "- **Use search_code to locate code**: If you do not know where a class or function is defined, use <tool name=\"search_code\"> to locate it before reading files.")
+				}
+				if appSettings.EnforcePlanning {
+					rules = append(rules, "- **MANDATORY PLANNING PHASE:** Before executing any code changes, file creation, or terminal commands, you MUST submit a step-by-step plan using <tool name=\"submit_plan\">. Wait for user approval before proceeding.",
+						"- **TICK OFF TASKS:** Always mark tasks as 'in_progress', 'completed', or 'failed' using <tool name=\"update_task\"> as you work through your plan.")
+				}
+				if len(rules) > 0 {
+					return "\n" + strings.Join(rules, "\n")
 				}
 				return ""
 			})() + `
-- **MANDATORY PLANNING PHASE:** Before executing any code changes, file creation, or terminal commands, you MUST submit a step-by-step plan using <tool name="submit_plan">. Wait for user approval before proceeding.
-- **TICK OFF TASKS:** Always mark tasks as 'in_progress', 'completed', or 'failed' using <tool name="update_task"> as you work through your plan.
 - **Use replace_text for modifications**: If a file already exists, always prefer <tool name="replace_text"> instead of <tool name="write_file">.
 - **One Action per Message**: Do not combine multiple tool calls in a single message.
 - **Wrap in Markdown Code Blocks**: Always wrap your XML tool block in a ___xml ... ___ code block.
@@ -236,7 +242,7 @@ If you have finished the task, output a clear wrap-up explanation without any to
 			// 3. Parse tool calls
 			toolCall := parseToolCall(reply)
 			if toolCall == nil {
-				if currentPlan == nil {
+				if currentPlan == nil && appSettings.EnforcePlanning {
 					fallbackPlan := parseFallbackPlan(reply)
 					if fallbackPlan != nil {
 						toolCall = &ParsedTool{
@@ -261,28 +267,34 @@ If you have finished the task, output a clear wrap-up explanation without any to
 					Tasks:       toolCall.Tasks,
 				}
 
-				// Emit plan update and change status to wait for approval
-				a.emitAgentPlan(tabID, currentPlan, "waiting_for_approval")
+				if appSettings.EnforcePlanning {
+					// Emit plan update and change status to wait for approval
+					a.emitAgentPlan(tabID, currentPlan, "waiting_for_approval")
 
-				ch := make(chan string)
-				a.planApprovalsMu.Lock()
-				a.planApprovals[tabID] = ch
-				a.planApprovalsMu.Unlock()
+					ch := make(chan string)
+					a.planApprovalsMu.Lock()
+					a.planApprovals[tabID] = ch
+					a.planApprovalsMu.Unlock()
 
-				// Wait on channel
-				approvalResult := <-ch
+					// Wait on channel
+					approvalResult := <-ch
 
-				a.planApprovalsMu.Lock()
-				delete(a.planApprovals, tabID)
-				a.planApprovalsMu.Unlock()
+					a.planApprovalsMu.Lock()
+					delete(a.planApprovals, tabID)
+					a.planApprovalsMu.Unlock()
 
-				if approvalResult == "approved" {
-					toolOutput = "Plan approved by user. You may now start executing your tasks. Remember to update task status using update_task."
-					a.emitAgentPlan(tabID, currentPlan, "running")
+					if approvalResult == "approved" {
+						toolOutput = "Plan approved by user. You may now start executing your tasks. Remember to update task status using update_task."
+						a.emitAgentPlan(tabID, currentPlan, "running")
+					} else {
+						feedback := strings.TrimPrefix(approvalResult, "rejected:")
+						toolOutput = fmt.Sprintf("Plan rejected by user. Feedback: %s. Please revise your plan and submit a new one.", feedback)
+						a.emitAgentPlan(tabID, nil, "running")
+					}
 				} else {
-					feedback := strings.TrimPrefix(approvalResult, "rejected:")
-					toolOutput = fmt.Sprintf("Plan rejected by user. Feedback: %s. Please revise your plan and submit a new one.", feedback)
-					a.emitAgentPlan(tabID, nil, "running")
+					// Auto approve
+					toolOutput = "Plan accepted automatically. You may start executing your tasks."
+					a.emitAgentPlan(tabID, currentPlan, "running")
 				}
 			} else if toolCall.Name == "update_task" {
 				if currentPlan != nil {

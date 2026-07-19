@@ -16,6 +16,7 @@ export namespace main {
 	    enableContextCompression: boolean;
 	    useRepoMap: boolean;
 	    repoMapTokens: number;
+	    enforcePlanning: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -38,6 +39,7 @@ export namespace main {
 	        this.enableContextCompression = source["enableContextCompression"];
 	        this.useRepoMap = source["useRepoMap"];
 	        this.repoMapTokens = source["repoMapTokens"];
+	        this.enforcePlanning = source["enforcePlanning"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

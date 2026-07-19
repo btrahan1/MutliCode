@@ -26,6 +26,7 @@ type AppSettings struct {
 	EnableContextCompression  bool                     `json:"enableContextCompression"`
 	UseRepoMap                bool                     `json:"useRepoMap"`
 	RepoMapTokens             int                      `json:"repoMapTokens"`
+	EnforcePlanning           bool                     `json:"enforcePlanning"`
 }
 
 func getSettingsPath() (string, error) {
@@ -94,6 +95,7 @@ func (a *App) LoadSettings() (AppSettings, error) {
 	settings.Theme = "dark"
 	settings.EnableSearchCode = true
 	settings.EnableContextCompression = true
+	settings.EnforcePlanning = true
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		importFreeCodeSettings(&settings)
