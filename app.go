@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"sync"
 )
 
@@ -13,6 +14,8 @@ type App struct {
 	cancelsMu       sync.Mutex
 	planApprovals   map[string]chan string
 	planApprovalsMu sync.Mutex
+	projectCmds     map[string]*exec.Cmd
+	projectCmdsMu   sync.Mutex
 }
 
 // NewApp creates a new App application struct
@@ -20,6 +23,7 @@ func NewApp() *App {
 	return &App{
 		agentCancels:  make(map[string]context.CancelFunc),
 		planApprovals: make(map[string]chan string),
+		projectCmds:   make(map[string]*exec.Cmd),
 	}
 }
 

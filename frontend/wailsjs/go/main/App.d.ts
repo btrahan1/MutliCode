@@ -26,11 +26,15 @@ export function IsPathIgnored(arg1:string,arg2:string):Promise<boolean>;
 
 export function LoadSettings():Promise<main.AppSettings>;
 
+export function OpenBrowserURL(arg1:string):Promise<void>;
+
 export function OpenPathInExplorer(arg1:string,arg2:string):Promise<void>;
 
 export function RejectPlan(arg1:string,arg2:string):Promise<void>;
 
 export function RenamePath(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function RunProject(arg1:string,arg2:string):Promise<void>;
 
 export function SaveFileContent(arg1:string,arg2:string,arg3:string):Promise<void>;
 
@@ -45,3 +49,5 @@ export function SendChatMessage(arg1:string,arg2:string,arg3:Array<main.ChatMess
 export function StartAgent(arg1:string,arg2:string,arg3:string,arg4:string,arg5:Array<main.ChatMessage>):Promise<void>;
 
 export function StopAgent(arg1:string):Promise<void>;
+
+export function StopProject(arg1:string):Promise<void>;

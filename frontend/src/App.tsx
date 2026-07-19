@@ -18,7 +18,10 @@ import {
   GetProjectSettings,
   SaveProjectSettings,
   ApprovePlan,
-  RejectPlan
+  RejectPlan,
+  RunProject,
+  StopProject,
+  OpenBrowserURL
 } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { main } from "../wailsjs/go/models";
@@ -59,6 +62,8 @@ interface ProjectTab {
   activeView?: 'editor' | 'plan';
   agentPlan?: AgentPlan | null;
   pendingCommand?: string | null;
+  projectStatus?: 'idle' | 'starting' | 'running' | 'error';
+  projectUrl?: string | null;
 }
 
 const TECH_STACKS = ["Wails", "Go", "React", "TypeScript", "HTML", ".NET", "Blazor", "Winforms"];
@@ -227,6 +232,34 @@ function App() {
       }));
     });
 
+    // Listen to project status events
+    EventsOn("project:status", (event: { tabId: string; status: 'idle' | 'starting' | 'running' | 'error' }) => {
+      setTabs(prev => prev.map(t => {
+        if (t.id === event.tabId) {
+          return {
+            ...t,
+            projectStatus: event.status,
+            projectUrl: event.status === 'idle' || event.status === 'error' ? null : t.projectUrl
+          };
+        }
+        return t;
+      }));
+    });
+
+    // Listen to project url extraction events
+    EventsOn("project:url", (event: { tabId: string; url: string }) => {
+      setTabs(prev => prev.map(t => {
+        if (t.id === event.tabId) {
+          return {
+            ...t,
+            projectStatus: 'running',
+            projectUrl: event.url
+          };
+        }
+        return t;
+      }));
+    });
+
     // Listen to agent history compression updates
     EventsOn("agent:history_update", (event: { tabId: string; messages: main.ChatMessage[] }) => {
       setTabs(prev => prev.map(t => {
@@ -323,7 +356,9 @@ function App() {
                 techStack: projSettings.techStack || [],
                 activeView: 'editor',
                 agentPlan: null,
-                pendingCommand: null
+                pendingCommand: null,
+                projectStatus: 'idle',
+                projectUrl: null
               });
             } catch (treeErr) {
               console.error(`Failed to restore workspace at ${path}:`, treeErr);
@@ -361,6 +396,8 @@ function App() {
       EventsOff("agent:command_approval");
       EventsOff("agent:status");
       EventsOff("agent:history_update");
+      EventsOff("project:status");
+      EventsOff("project:url");
       window.removeEventListener('click', hideMenu);
     };
   }, []);
@@ -430,7 +467,9 @@ function App() {
       chatInput: '',
       activeView: 'editor',
       agentPlan: null,
-      pendingCommand: null
+      pendingCommand: null,
+      projectStatus: 'idle',
+      projectUrl: null
     };
     setTabs([welcome]);
     setActiveTabId('welcome');
@@ -471,7 +510,9 @@ function App() {
         techStack: projSettings.techStack || [],
         activeView: 'editor',
         agentPlan: null,
-        pendingCommand: null
+        pendingCommand: null,
+        projectStatus: 'idle',
+        projectUrl: null
       };
 
       setTabs(prev => {
@@ -521,7 +562,9 @@ function App() {
         techStack: newProjectTechStack,
         activeView: 'editor',
         agentPlan: null,
-        pendingCommand: null
+        pendingCommand: null,
+        projectStatus: 'idle',
+        projectUrl: null
       };
 
       setTabs(prev => {
@@ -1049,6 +1092,27 @@ function App() {
       .catch(err => showToast(`Error: ${err}`, "error"));
   };
 
+  const handleRunProject = () => {
+    if (!activeTab || !activeTab.path) return;
+    setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, projectStatus: 'starting', projectUrl: null } : t));
+    RunProject(activeTab.id, activeTab.path)
+      .catch(err => {
+        showToast(`Failed to run project: ${err}`, "error");
+        setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, projectStatus: 'error' } : t));
+      });
+  };
+
+  const handleStopProject = () => {
+    if (!activeTab) return;
+    StopProject(activeTab.id)
+      .catch(err => showToast(`Failed to stop project: ${err}`, "error"));
+  };
+
+  const handleOpenBrowser = () => {
+    if (!activeTab || !activeTab.projectUrl) return;
+    OpenBrowserURL(activeTab.projectUrl);
+  };
+
   const handleRejectPlanClick = () => {
     if (!activeTab) return;
     const feedback = prompt("Please provide instructions on what to change in the plan:");
@@ -1192,7 +1256,24 @@ function App() {
             {/* Left Explorer Sidebar */}
             <aside className="explorer-sidebar" style={{ width: sidebarWidth }}>
               <div className="sidebar-header">
-                <h2>Explorer</h2>
+                <div className="sidebar-title-row">
+                  <h2>Explorer</h2>
+                  {activeTab.path && (
+                    <div className="project-runner-controls">
+                      {(!activeTab.projectStatus || activeTab.projectStatus === 'idle' || activeTab.projectStatus === 'error') ? (
+                        <button className="runner-btn play-btn" title="Run Project" onClick={handleRunProject}>▶️</button>
+                      ) : (
+                        <button className="runner-btn stop-btn" title="Stop Project" onClick={handleStopProject}>⏹️</button>
+                      )}
+                      {activeTab.projectStatus === 'starting' && <span className="runner-status starting">Starting...</span>}
+                      {activeTab.projectStatus === 'running' && (
+                        <span className="runner-status running" onClick={handleOpenBrowser} title="Open in browser">
+                          🌐 {activeTab.projectUrl ? "Open" : "Running"}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
                 {activeTab.path && (
                   <div className="explorer-quick-actions">
                     <button title="Refresh Explorer" onClick={handleRefreshExplorer}>🔄</button>

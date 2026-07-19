@@ -50,6 +50,10 @@ export function LoadSettings() {
   return window['go']['main']['App']['LoadSettings']();
 }
 
+export function OpenBrowserURL(arg1) {
+  return window['go']['main']['App']['OpenBrowserURL'](arg1);
+}
+
 export function OpenPathInExplorer(arg1, arg2) {
   return window['go']['main']['App']['OpenPathInExplorer'](arg1, arg2);
 }
@@ -60,6 +64,10 @@ export function RejectPlan(arg1, arg2) {
 
 export function RenamePath(arg1, arg2, arg3) {
   return window['go']['main']['App']['RenamePath'](arg1, arg2, arg3);
+}
+
+export function RunProject(arg1, arg2) {
+  return window['go']['main']['App']['RunProject'](arg1, arg2);
 }
 
 export function SaveFileContent(arg1, arg2, arg3) {
@@ -88,4 +96,8 @@ export function StartAgent(arg1, arg2, arg3, arg4, arg5) {
 
 export function StopAgent(arg1) {
   return window['go']['main']['App']['StopAgent'](arg1);
+}
+
+export function StopProject(arg1) {
+  return window['go']['main']['App']['StopProject'](arg1);
 }

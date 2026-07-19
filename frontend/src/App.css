@@ -654,6 +654,70 @@ body {
   border-color: rgba(255, 255, 255, 0.2);
 }
 
+.sidebar-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.project-runner-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.runner-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.runner-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.runner-status {
+  font-size: 0.72rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.runner-status.starting {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  animation: pulse-opacity 1.5s infinite ease-in-out;
+}
+
+.runner-status.running {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  cursor: pointer;
+  text-decoration: none;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.runner-status.running:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+@keyframes pulse-opacity {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
+}
+
 /* Panel Resizers */
 .resizer-bar {
   width: 5px;

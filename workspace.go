@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	goRuntime "runtime"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -250,6 +255,190 @@ func (a *App) CreateNewProject(parentDir string, projectName string, techStack [
 	}
 
 	return projectPath, nil
+}
+
+func (a *App) RunProject(tabID string, projectPath string) error {
+	a.projectCmdsMu.Lock()
+	existingCmd, exists := a.projectCmds[tabID]
+	a.projectCmdsMu.Unlock()
+
+	if exists && existingCmd != nil {
+		_ = a.StopProject(tabID)
+		time.Sleep(500 * time.Millisecond) // Give OS a moment to release ports
+	}
+
+	name, args := detectRunCommand(projectPath)
+	if name == "" {
+		return fmt.Errorf("could not detect project type or run command for path: %s", projectPath)
+	}
+
+	runtime.EventsEmit(a.ctx, "project:status", map[string]string{
+		"tabId":  tabID,
+		"status": "starting",
+	})
+
+	cmd := createCommand(projectPath, name, args)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	if err := cmd.Start(); err != nil {
+		runtime.EventsEmit(a.ctx, "project:status", map[string]string{
+			"tabId":  tabID,
+			"status": "error",
+		})
+		return err
+	}
+
+	a.projectCmdsMu.Lock()
+	a.projectCmds[tabID] = cmd
+	a.projectCmdsMu.Unlock()
+
+	// Regex to extract URL
+	urlRegex := regexp.MustCompile(`https?://(localhost|127\.0\.0\.1|0\.0\.0\.0):[0-9]+`)
+
+	scanLogs := func(reader io.ReadCloser) {
+		scanner := bufio.NewScanner(reader)
+		for scanner.Scan() {
+			line := scanner.Text()
+			fmt.Printf("[%s Output]: %s\n", tabID, line)
+			match := urlRegex.FindString(line)
+			if match != "" {
+				// Normalize 0.0.0.0 to localhost for browser-open ease
+				match = strings.Replace(match, "0.0.0.0", "localhost", 1)
+				runtime.EventsEmit(a.ctx, "project:url", map[string]string{
+					"tabId": tabID,
+					"url":   match,
+				})
+			}
+		}
+	}
+
+	go scanLogs(stdout)
+	go scanLogs(stderr)
+
+	// Wait for process exit
+	go func() {
+		_ = cmd.Wait()
+
+		a.projectCmdsMu.Lock()
+		delete(a.projectCmds, tabID)
+		a.projectCmdsMu.Unlock()
+
+		runtime.EventsEmit(a.ctx, "project:status", map[string]string{
+			"tabId":  tabID,
+			"status": "idle",
+		})
+	}()
+
+	return nil
+}
+
+func (a *App) StopProject(tabID string) error {
+	a.projectCmdsMu.Lock()
+	cmd, exists := a.projectCmds[tabID]
+	a.projectCmdsMu.Unlock()
+
+	if !exists || cmd == nil {
+		return nil
+	}
+
+	if goRuntime.GOOS == "windows" {
+		killCmd := exec.Command("taskkill", "/t", "/f", "/pid", fmt.Sprintf("%d", cmd.Process.Pid))
+		_ = killCmd.Run()
+	} else {
+		_ = cmd.Process.Kill()
+	}
+
+	a.projectCmdsMu.Lock()
+	delete(a.projectCmds, tabID)
+	a.projectCmdsMu.Unlock()
+
+	runtime.EventsEmit(a.ctx, "project:status", map[string]string{
+		"tabId":  tabID,
+		"status": "idle",
+	})
+
+	return nil
+}
+
+func (a *App) OpenBrowserURL(url string) {
+	runtime.BrowserOpenURL(a.ctx, url)
+}
+
+func detectRunCommand(projectPath string) (string, []string) {
+	if _, err := os.Stat(filepath.Join(projectPath, "wails.json")); err == nil {
+		return "wails", []string{"dev"}
+	}
+
+	if _, err := os.Stat(filepath.Join(projectPath, "package.json")); err == nil {
+		pData, err := os.ReadFile(filepath.Join(projectPath, "package.json"))
+		if err == nil {
+			var pkg struct {
+				Scripts map[string]string `json:"scripts"`
+			}
+			if json.Unmarshal(pData, &pkg) == nil {
+				if _, ok := pkg.Scripts["dev"]; ok {
+					return "npm", []string{"run", "dev"}
+				}
+				if _, ok := pkg.Scripts["start"]; ok {
+					return "npm", []string{"start"}
+				}
+			}
+		}
+		return "npm", []string{"run", "dev"}
+	}
+
+	// Try in root or recursively (e.g. Server folders)
+	matches, _ := filepath.Glob(filepath.Join(projectPath, "*.csproj"))
+	if len(matches) > 0 {
+		return "dotnet", []string{"run"}
+	}
+
+	var serverCsproj string
+	_ = filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".csproj") {
+			if strings.Contains(strings.ToLower(info.Name()), "server") {
+				serverCsproj = path
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+	if serverCsproj != "" {
+		rel, err := filepath.Rel(projectPath, serverCsproj)
+		if err == nil {
+			return "dotnet", []string{"run", "--project", rel}
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(projectPath, "main.go")); err == nil {
+		return "go", []string{"run", "."}
+	}
+
+	if _, err := os.Stat(filepath.Join(projectPath, "index.html")); err == nil {
+		return "npx", []string{"serve", "."}
+	}
+
+	return "", nil
+}
+
+func createCommand(dir string, name string, args []string) *exec.Cmd {
+	var cmd *exec.Cmd
+	if goRuntime.GOOS == "windows" {
+		fullArgs := append([]string{"/c", name}, args...)
+		cmd = exec.Command("cmd.exe", fullArgs...)
+	} else {
+		cmd = exec.Command(name, args...)
+	}
+	cmd.Dir = dir
+	return cmd
 }
 
 
