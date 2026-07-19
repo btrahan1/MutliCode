@@ -1022,6 +1022,17 @@ function App() {
       .catch(err => showToast(`Error rejecting plan: ${err}`, "error"));
   };
 
+  const handleRefreshExplorer = async () => {
+    if (!activeTab || !activeTab.path) return;
+    try {
+      const tree = await GetDirectoryTree(activeTab.path);
+      setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, fileTree: tree } : t));
+      showToast("Explorer refreshed", "success");
+    } catch (err) {
+      showToast(`Failed to refresh explorer: ${err}`, "error");
+    }
+  };
+
   const renderPlanView = () => {
     if (!activeTab || !activeTab.agentPlan) return null;
     const plan = activeTab.agentPlan;
@@ -1143,6 +1154,7 @@ function App() {
                 <h2>Explorer</h2>
                 {activeTab.path && (
                   <div className="explorer-quick-actions">
+                    <button title="Refresh Explorer" onClick={handleRefreshExplorer}>🔄</button>
                     <button title="New File" onClick={handleCreateFile}>+📄</button>
                     <button title="New Folder" onClick={handleCreateDirectory}>+📁</button>
                   </div>
