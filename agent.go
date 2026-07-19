@@ -15,12 +15,24 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+type TaskItem struct {
+	ID          string `json:"id"`
+	Description string `json:"description"`
+	Status      string `json:"status"` // "pending" | "in_progress" | "completed" | "failed"
+}
+
+type AgentPlan struct {
+	Description string     `json:"description"`
+	Tasks       []TaskItem `json:"tasks"`
+}
+
 type AgentEvent struct {
 	TabID    string        `json:"tabId"`
-	Type     string        `json:"type"` // "message" | "status" | "history_update"
+	Type     string        `json:"type"` // "message" | "status" | "history_update" | "plan"
 	Message  ChatMessage   `json:"message"`
 	Messages []ChatMessage `json:"messages"`
-	Status   string        `json:"status"` // "idle" | "running" | "completed"
+	Status   string        `json:"status"` // "idle" | "running" | "completed" | "waiting_for_approval"
+	Plan     *AgentPlan    `json:"plan,omitempty"`
 }
 
 // StartAgent launches the background agent execution loop.
@@ -49,6 +61,8 @@ func (a *App) StartAgent(tabID string, workspacePath string, modelName string, p
 
 		// Create workspace message history
 		messages := append(history, ChatMessage{Role: "user", Content: prompt})
+
+		var currentPlan *AgentPlan
 
 		for {
 			// Check if cancelled
@@ -142,6 +156,27 @@ ___xml
 </tool>
 ___`, toolIndex))
 
+			toolIndex++
+			toolList = append(toolList, fmt.Sprintf(`%d. Submit an execution plan and task checklist (MANDATORY at the start of any new task):
+___xml
+<tool name="submit_plan">
+  <description>High-level plan summary/description</description>
+  <tasks>
+    <task id="task1">First discrete step description</task>
+    <task id="task2">Second discrete step description</task>
+  </tasks>
+</tool>
+___`, toolIndex))
+
+			toolIndex++
+			toolList = append(toolList, fmt.Sprintf(`%d. Update the progress status of a plan task:
+___xml
+<tool name="update_task">
+  <id>task1</id>
+  <status>in_progress</status> <!-- 'pending' | 'in_progress' | 'completed' | 'failed' -->
+</tool>
+___`, toolIndex))
+
 			toolsSpec := strings.Join(toolList, "\n\n")
 
 			systemPromptRaw := `You are MultiCode Agent, an autonomous coding assistant connected to my developer workspace.
@@ -162,6 +197,8 @@ You can invoke the following tools using XML blocks. Output ONLY one tool block 
 				}
 				return ""
 			})() + `
+- **MANDATORY PLANNING PHASE:** Before executing any code changes, file creation, or terminal commands, you MUST submit a step-by-step plan using <tool name="submit_plan">. Wait for user approval before proceeding.
+- **TICK OFF TASKS:** Always mark tasks as 'in_progress', 'completed', or 'failed' using <tool name="update_task"> as you work through your plan.
 - **Use replace_text for modifications**: If a file already exists, always prefer <tool name="replace_text"> instead of <tool name="write_file">.
 - **One Action per Message**: Do not combine multiple tool calls in a single message.
 - **Wrap in Markdown Code Blocks**: Always wrap your XML tool block in a ___xml ... ___ code block.
@@ -204,8 +241,59 @@ If you have finished the task, output a clear wrap-up explanation without any to
 				return
 			}
 
-			// 4. Execute tool call
-			toolOutput := a.executeTool(workspacePath, toolCall)
+			var toolOutput string
+			if toolCall.Name == "submit_plan" {
+				currentPlan = &AgentPlan{
+					Description: toolCall.Content,
+					Tasks:       toolCall.Tasks,
+				}
+
+				// Emit plan update and change status to wait for approval
+				a.emitAgentPlan(tabID, currentPlan, "waiting_for_approval")
+
+				ch := make(chan string)
+				a.planApprovalsMu.Lock()
+				a.planApprovals[tabID] = ch
+				a.planApprovalsMu.Unlock()
+
+				// Wait on channel
+				approvalResult := <-ch
+
+				a.planApprovalsMu.Lock()
+				delete(a.planApprovals, tabID)
+				a.planApprovalsMu.Unlock()
+
+				if approvalResult == "approved" {
+					toolOutput = "Plan approved by user. You may now start executing your tasks. Remember to update task status using update_task."
+					a.emitAgentPlan(tabID, currentPlan, "running")
+				} else {
+					feedback := strings.TrimPrefix(approvalResult, "rejected:")
+					toolOutput = fmt.Sprintf("Plan rejected by user. Feedback: %s. Please revise your plan and submit a new one.", feedback)
+					a.emitAgentPlan(tabID, nil, "running")
+				}
+			} else if toolCall.Name == "update_task" {
+				if currentPlan != nil {
+					found := false
+					for i, t := range currentPlan.Tasks {
+						if t.ID == toolCall.TaskID {
+							currentPlan.Tasks[i].Status = toolCall.TaskStatus
+							found = true
+							break
+						}
+					}
+					if found {
+						toolOutput = fmt.Sprintf("Task '%s' status updated to '%s'.", toolCall.TaskID, toolCall.TaskStatus)
+						a.emitAgentPlan(tabID, currentPlan, "running")
+					} else {
+						toolOutput = fmt.Sprintf("Error: Task ID '%s' not found in current plan.", toolCall.TaskID)
+					}
+				} else {
+					toolOutput = "Error: No active plan found. Please submit a plan first using submit_plan."
+				}
+			} else {
+				// 4. Execute tool call
+				toolOutput = a.executeTool(workspacePath, toolCall)
+			}
 
 			// Emit tool result as user prompt for next iteration
 			a.emitAgentMessage(tabID, ChatMessage{
@@ -240,6 +328,9 @@ type ParsedTool struct {
 	EndLine     int
 	Target      string
 	Replacement string
+	Tasks       []TaskItem
+	TaskID      string
+	TaskStatus  string
 }
 
 func parseToolCall(text string) *ParsedTool {
@@ -307,6 +398,35 @@ func parseToolCall(text string) *ParsedTool {
 	replacementRegex := regexp.MustCompile(`(?i)<replacement>([\s\S]*?)</replacement>`)
 	if replacementMatch := replacementRegex.FindStringSubmatch(innerContent); len(replacementMatch) > 1 {
 		tool.Replacement = replacementMatch[1]
+	}
+
+	// Extract description (for submit_plan)
+	descRegex := regexp.MustCompile(`(?i)<description>([\s\S]*?)</description>`)
+	if descMatch := descRegex.FindStringSubmatch(innerContent); len(descMatch) > 1 {
+		tool.Content = strings.TrimSpace(descMatch[1])
+	}
+
+	// Extract tasks (for submit_plan)
+	taskRegex := regexp.MustCompile(`(?i)<task\s+id=["']?([^"'>]+)["']?>([\s\S]*?)</task>`)
+	taskMatches := taskRegex.FindAllStringSubmatch(innerContent, -1)
+	for _, match := range taskMatches {
+		if len(match) > 2 {
+			tool.Tasks = append(tool.Tasks, TaskItem{
+				ID:          strings.TrimSpace(match[1]),
+				Description: strings.TrimSpace(match[2]),
+				Status:      "pending",
+			})
+		}
+	}
+
+	// Extract task ID and status (for update_task)
+	idRegex := regexp.MustCompile(`(?i)<id>([\s\S]*?)</id>`)
+	if idMatch := idRegex.FindStringSubmatch(innerContent); len(idMatch) > 1 {
+		tool.TaskID = strings.TrimSpace(idMatch[1])
+	}
+	statusRegex := regexp.MustCompile(`(?i)<status>([\s\S]*?)</status>`)
+	if statusMatch := statusRegex.FindStringSubmatch(innerContent); len(statusMatch) > 1 {
+		tool.TaskStatus = strings.TrimSpace(statusMatch[1])
 	}
 
 	return &tool
@@ -605,4 +725,31 @@ func (a *App) GetActiveFiles(messages []ChatMessage) []string {
 		list = append(list, p)
 	}
 	return list
+}
+
+func (a *App) emitAgentPlan(tabID string, plan *AgentPlan, status string) {
+	runtime.EventsEmit(a.ctx, "agent:plan", AgentEvent{
+		TabID:  tabID,
+		Type:   "plan",
+		Status: status,
+		Plan:   plan,
+	})
+}
+
+func (a *App) ApprovePlan(tabID string) {
+	a.planApprovalsMu.Lock()
+	ch, exists := a.planApprovals[tabID]
+	a.planApprovalsMu.Unlock()
+	if exists {
+		ch <- "approved"
+	}
+}
+
+func (a *App) RejectPlan(tabID string, feedback string) {
+	a.planApprovalsMu.Lock()
+	ch, exists := a.planApprovals[tabID]
+	a.planApprovalsMu.Unlock()
+	if exists {
+		ch <- "rejected:" + feedback
+	}
 }

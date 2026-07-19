@@ -8,15 +8,18 @@ import (
 
 // App struct
 type App struct {
-	ctx          context.Context
-	agentCancels map[string]context.CancelFunc
-	cancelsMu    sync.Mutex
+	ctx             context.Context
+	agentCancels    map[string]context.CancelFunc
+	cancelsMu       sync.Mutex
+	planApprovals   map[string]chan string
+	planApprovalsMu sync.Mutex
 }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		agentCancels: make(map[string]context.CancelFunc),
+		agentCancels:  make(map[string]context.CancelFunc),
+		planApprovals: make(map[string]chan string),
 	}
 }
 

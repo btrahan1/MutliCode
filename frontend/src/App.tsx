@@ -16,7 +16,9 @@ import {
   StopAgent,
   CreateNewProject,
   GetProjectSettings,
-  SaveProjectSettings
+  SaveProjectSettings,
+  ApprovePlan,
+  RejectPlan
 } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { main } from "../wailsjs/go/models";
@@ -29,6 +31,17 @@ interface FileNode {
   children?: FileNode[];
 }
 
+interface TaskItem {
+  id: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+}
+
+interface AgentPlan {
+  description: string;
+  tasks: TaskItem[];
+}
+
 interface ProjectTab {
   id: string;
   name: string;
@@ -39,10 +52,12 @@ interface ProjectTab {
   isDirty: boolean;
   model: string;
   messages: main.ChatMessage[];
-  agentStatus: 'idle' | 'running' | 'completed';
+  agentStatus: 'idle' | 'running' | 'completed' | 'waiting_for_approval';
   agentGoal: string;
   chatInput: string;
   techStack?: string[];
+  activeView?: 'editor' | 'plan';
+  agentPlan?: AgentPlan | null;
 }
 
 const TECH_STACKS = ["Wails", "Go", "React", "TypeScript", "HTML", ".NET", "Blazor", "Winforms"];
@@ -180,6 +195,21 @@ function App() {
       }));
     });
 
+    // Listen to agent plan updates
+    EventsOn("agent:plan", (event: { tabId: string; status: 'idle' | 'running' | 'completed' | 'waiting_for_approval'; plan: AgentPlan | null }) => {
+      setTabs(prev => prev.map(t => {
+        if (t.id === event.tabId) {
+          return {
+            ...t,
+            agentStatus: event.status,
+            agentPlan: event.plan,
+            activeView: event.plan ? 'plan' : t.activeView
+          };
+        }
+        return t;
+      }));
+    });
+
     // Listen to agent history compression updates
     EventsOn("agent:history_update", (event: { tabId: string; messages: main.ChatMessage[] }) => {
       setTabs(prev => prev.map(t => {
@@ -194,7 +224,7 @@ function App() {
     });
 
     // Listen to agent status updates
-    EventsOn("agent:status", (event: { tabId: string; status: 'idle' | 'running' | 'completed' }) => {
+    EventsOn("agent:status", (event: { tabId: string; status: 'idle' | 'running' | 'completed' | 'waiting_for_approval' }) => {
       setTabs(prev => prev.map(t => {
         if (t.id === event.tabId) {
           const wasRunning = t.agentStatus === "running";
@@ -272,7 +302,9 @@ function App() {
                 agentStatus: 'idle',
                 agentGoal: '',
                 chatInput: '',
-                techStack: projSettings.techStack || []
+                techStack: projSettings.techStack || [],
+                activeView: 'editor',
+                agentPlan: null
               });
             } catch (treeErr) {
               console.error(`Failed to restore workspace at ${path}:`, treeErr);
@@ -306,6 +338,7 @@ function App() {
 
     return () => {
       EventsOff("agent:message");
+      EventsOff("agent:plan");
       EventsOff("agent:status");
       EventsOff("agent:history_update");
       window.removeEventListener('click', hideMenu);
@@ -373,7 +406,9 @@ function App() {
       ],
       agentStatus: 'idle',
       agentGoal: '',
-      chatInput: ''
+      chatInput: '',
+      activeView: 'editor',
+      agentPlan: null
     };
     setTabs([welcome]);
     setActiveTabId('welcome');
@@ -411,7 +446,9 @@ function App() {
         agentStatus: 'idle',
         agentGoal: '',
         chatInput: '',
-        techStack: projSettings.techStack || []
+        techStack: projSettings.techStack || [],
+        activeView: 'editor',
+        agentPlan: null
       };
 
       setTabs(prev => {
@@ -458,7 +495,9 @@ function App() {
         agentStatus: 'idle',
         agentGoal: '',
         chatInput: '',
-        techStack: newProjectTechStack
+        techStack: newProjectTechStack,
+        activeView: 'editor',
+        agentPlan: null
       };
 
       setTabs(prev => {
@@ -954,6 +993,94 @@ function App() {
     );
   };
 
+  const handleSwitchView = (view: 'editor' | 'plan') => {
+    if (!activeTab) return;
+    setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, activeView: view } : t));
+  };
+
+  const handleApprovePlan = () => {
+    if (!activeTab) return;
+    ApprovePlan(activeTab.id)
+      .then(() => {
+        showToast("Plan approved! Executing tasks...", "success");
+      })
+      .catch(err => showToast(`Error approving plan: ${err}`, "error"));
+  };
+
+  const handleRejectPlanClick = () => {
+    if (!activeTab) return;
+    const feedback = prompt("Please provide instructions on what to change in the plan:");
+    if (feedback === null) return;
+    if (!feedback.trim()) {
+      showToast("Feedback cannot be empty", "error");
+      return;
+    }
+    RejectPlan(activeTab.id, feedback.trim())
+      .then(() => {
+        showToast("Plan rejected. Sending feedback to agent.", "info");
+      })
+      .catch(err => showToast(`Error rejecting plan: ${err}`, "error"));
+  };
+
+  const renderPlanView = () => {
+    if (!activeTab || !activeTab.agentPlan) return null;
+    const plan = activeTab.agentPlan;
+    const status = activeTab.agentStatus;
+
+    return (
+      <div className="plan-view-container">
+        <div className="plan-header-card">
+          <h2>Execution Plan Description</h2>
+          <p className="plan-description">{plan.description}</p>
+        </div>
+
+        <div className="plan-tasks-section">
+          <h3>Checklist / Task Progress</h3>
+          <div className="tasks-list">
+            {plan.tasks && plan.tasks.map(task => {
+              let icon = "⚪";
+              let className = "task-pending";
+              if (task.status === "in_progress") {
+                icon = "🔄";
+                className = "task-in-progress spinning";
+              } else if (task.status === "completed") {
+                icon = "✅";
+                className = "task-completed";
+              } else if (task.status === "failed") {
+                icon = "❌";
+                className = "task-failed";
+              }
+
+              return (
+                <div key={task.id} className={`task-item ${className}`}>
+                  <span className="task-icon">{icon}</span>
+                  <span className="task-desc">{task.description}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {status === "waiting_for_approval" && (
+          <div className="plan-approval-gate">
+            <div className="approval-warning">
+              <h3>⚠️ User Approval Required</h3>
+              <p>Review the plan checklist above. Do you want to proceed with this plan?</p>
+            </div>
+            <div className="approval-actions">
+              <button className="approve-plan-btn" onClick={handleApprovePlan}>
+                ✓ Approve Plan
+              </button>
+              <button className="reject-plan-btn" onClick={handleRejectPlanClick}>
+                ✕ Request Changes
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className={`multicode-app ${theme === 'light' ? 'light-theme' : ''}`}>
       {/* Top Header / Project Tab bar */}
@@ -1039,21 +1166,43 @@ function App() {
             {/* Center Code Editor */}
             <main className="editor-area">
               <div className="editor-header">
-                <span className="active-filepath">
-                  {activeTab.activeFile ? activeTab.activeFile : "Select a file to edit"}
-                </span>
-                {activeTab.activeFile && (
+                <div className="editor-tabs-switcher">
                   <button 
-                    className={`save-btn ${activeTab.isDirty ? 'dirty' : ''}`} 
-                    onClick={handleSaveFile}
-                    disabled={!activeTab.isDirty}
+                    className={`editor-tab-btn ${(!activeTab.activeView || activeTab.activeView === 'editor') ? 'active' : ''}`}
+                    onClick={() => handleSwitchView('editor')}
                   >
-                    Save Changes
+                    📄 Code Editor
                   </button>
+                  {activeTab.agentPlan && (
+                    <button 
+                      className={`editor-tab-btn ${(activeTab.activeView === 'plan') ? 'active' : ''}`}
+                      onClick={() => handleSwitchView('plan')}
+                    >
+                      📋 Execution Plan
+                    </button>
+                  )}
+                </div>
+                {(!activeTab.activeView || activeTab.activeView === 'editor') && (
+                  <>
+                    <span className="active-filepath">
+                      {activeTab.activeFile ? activeTab.activeFile : "Select a file to edit"}
+                    </span>
+                    {activeTab.activeFile && (
+                      <button 
+                        className={`save-btn ${activeTab.isDirty ? 'dirty' : ''}`} 
+                        onClick={handleSaveFile}
+                        disabled={!activeTab.isDirty}
+                      >
+                        Save Changes
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
               <div className="editor-wrapper">
-                {activeTab.activeFile ? (
+                {activeTab.activeView === 'plan' && activeTab.agentPlan ? (
+                  renderPlanView()
+                ) : activeTab.activeFile ? (
                   <Editor
                     height="100%"
                     language={getLanguageFromFilename(activeTab.activeFile)}
@@ -1075,7 +1224,7 @@ function App() {
                   <div className="editor-empty-state">
                     <svg className="splash-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
                     <h3>Simultaneous Workspaces</h3>
-                    <p>Select a file from the explorer or type a instruction for the AI agent.</p>
+                    <p>Select a file from the explorer or type an instruction for the AI agent.</p>
                   </div>
                 )}
               </div>
