@@ -10,8 +10,16 @@ export function CreateFile(arg1, arg2) {
   return window['go']['main']['App']['CreateFile'](arg1, arg2);
 }
 
+export function CreateNewProject(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CreateNewProject'](arg1, arg2, arg3);
+}
+
 export function DeletePath(arg1, arg2) {
   return window['go']['main']['App']['DeletePath'](arg1, arg2);
+}
+
+export function GetActiveFiles(arg1) {
+  return window['go']['main']['App']['GetActiveFiles'](arg1);
 }
 
 export function GetDirectoryTree(arg1) {
@@ -20,6 +28,10 @@ export function GetDirectoryTree(arg1) {
 
 export function GetFileContent(arg1, arg2) {
   return window['go']['main']['App']['GetFileContent'](arg1, arg2);
+}
+
+export function GetProjectSettings(arg1) {
+  return window['go']['main']['App']['GetProjectSettings'](arg1);
 }
 
 export function Greet(arg1) {
@@ -44,6 +56,10 @@ export function RenamePath(arg1, arg2, arg3) {
 
 export function SaveFileContent(arg1, arg2, arg3) {
   return window['go']['main']['App']['SaveFileContent'](arg1, arg2, arg3);
+}
+
+export function SaveProjectSettings(arg1, arg2) {
+  return window['go']['main']['App']['SaveProjectSettings'](arg1, arg2);
 }
 
 export function SaveSettings(arg1) {

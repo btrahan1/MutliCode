@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -198,4 +199,57 @@ func (a *App) RenamePath(workspacePath string, oldRelPath string, newRelPath str
 	}
 	return os.Rename(oldPath, newPath)
 }
+
+type ProjectSettings struct {
+	TechStack []string `json:"techStack"`
+}
+
+func (a *App) GetProjectSettings(projectPath string) (ProjectSettings, error) {
+	var settings ProjectSettings
+	settings.TechStack = []string{}
+	filePath := filepath.Join(projectPath, ".multicode.json")
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return settings, nil
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return settings, err
+	}
+	err = json.Unmarshal(data, &settings)
+	return settings, err
+}
+
+func (a *App) SaveProjectSettings(projectPath string, settings ProjectSettings) error {
+	filePath := filepath.Join(projectPath, ".multicode.json")
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filePath, data, 0644)
+}
+
+func (a *App) CreateNewProject(parentDir string, projectName string, techStack []string) (string, error) {
+	if parentDir == "" {
+		return "", fmt.Errorf("parent directory cannot be empty")
+	}
+	if projectName == "" {
+		return "", fmt.Errorf("project name cannot be empty")
+	}
+
+	projectPath := filepath.Join(parentDir, projectName)
+	if err := os.MkdirAll(projectPath, 0755); err != nil {
+		return "", err
+	}
+
+	settings := ProjectSettings{
+		TechStack: techStack,
+	}
+
+	if err := a.SaveProjectSettings(projectPath, settings); err != nil {
+		return "", err
+	}
+
+	return projectPath, nil
+}
+
 

@@ -24,6 +24,8 @@ type AppSettings struct {
 	Theme                     string                   `json:"theme"`
 	EnableSearchCode          bool                     `json:"enableSearchCode"`
 	EnableContextCompression  bool                     `json:"enableContextCompression"`
+	UseRepoMap                bool                     `json:"useRepoMap"`
+	RepoMapTokens             int                      `json:"repoMapTokens"`
 }
 
 func getSettingsPath() (string, error) {
@@ -129,6 +131,9 @@ func (a *App) LoadSettings() (AppSettings, error) {
 	}
 	if settings.Theme == "" {
 		settings.Theme = "dark"
+	}
+	if settings.RepoMapTokens <= 0 {
+		settings.RepoMapTokens = 1024
 	}
 
 	if settings.GeminiApiKey == "" || settings.OpenCodeApiKey == "" {

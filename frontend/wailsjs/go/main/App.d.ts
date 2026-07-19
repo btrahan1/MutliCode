@@ -6,11 +6,17 @@ export function CreateDirectory(arg1:string,arg2:string):Promise<void>;
 
 export function CreateFile(arg1:string,arg2:string):Promise<void>;
 
+export function CreateNewProject(arg1:string,arg2:string,arg3:Array<string>):Promise<string>;
+
 export function DeletePath(arg1:string,arg2:string):Promise<void>;
+
+export function GetActiveFiles(arg1:Array<main.ChatMessage>):Promise<Array<string>>;
 
 export function GetDirectoryTree(arg1:string):Promise<main.FileNode>;
 
 export function GetFileContent(arg1:string,arg2:string):Promise<string>;
+
+export function GetProjectSettings(arg1:string):Promise<main.ProjectSettings>;
 
 export function Greet(arg1:string):Promise<string>;
 
@@ -23,6 +29,8 @@ export function OpenPathInExplorer(arg1:string,arg2:string):Promise<void>;
 export function RenamePath(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SaveFileContent(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SaveProjectSettings(arg1:string,arg2:main.ProjectSettings):Promise<void>;
 
 export function SaveSettings(arg1:main.AppSettings):Promise<void>;
 

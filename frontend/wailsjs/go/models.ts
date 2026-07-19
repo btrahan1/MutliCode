@@ -14,6 +14,8 @@ export namespace main {
 	    theme: string;
 	    enableSearchCode: boolean;
 	    enableContextCompression: boolean;
+	    useRepoMap: boolean;
+	    repoMapTokens: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -34,6 +36,8 @@ export namespace main {
 	        this.theme = source["theme"];
 	        this.enableSearchCode = source["enableSearchCode"];
 	        this.enableContextCompression = source["enableContextCompression"];
+	        this.useRepoMap = source["useRepoMap"];
+	        this.repoMapTokens = source["repoMapTokens"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -103,6 +107,18 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class ProjectSettings {
+	    techStack: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ProjectSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.techStack = source["techStack"];
+	    }
 	}
 
 }

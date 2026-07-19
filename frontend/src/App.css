@@ -1047,3 +1047,41 @@ body {
     transform: translate(-50%, -12px);
   }
 }
+
+/* Tech Stack grid and checklist styling */
+.tech-stack-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.tech-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: background 0.2s ease;
+  font-size: 0.85rem !important;
+}
+
+.tech-checkbox:hover {
+  background: var(--bg-active);
+}
+
+.secondary-new-btn {
+  background: linear-gradient(135deg, rgba(155, 81, 224, 0.2) 0%, rgba(0, 242, 254, 0.2) 100%) !important;
+  border: 1px solid rgba(155, 81, 224, 0.4) !important;
+}
+
+.secondary-new-btn:hover {
+  background: linear-gradient(135deg, rgba(155, 81, 224, 0.4) 0%, rgba(0, 242, 254, 0.4) 100%) !important;
+  border-color: rgba(0, 242, 254, 0.6) !important;
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+}

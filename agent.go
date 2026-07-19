@@ -63,12 +63,29 @@ func (a *App) StartAgent(tabID string, workspacePath string, modelName string, p
 
 			// Load settings dynamically
 			appSettings, _ := a.LoadSettings()
+			projectSettings, _ := a.GetProjectSettings(workspacePath)
 
-			// 1. Build directory structure layout
+			// 1. Build directory structure layout or Repo Map
 			dirLayout := ""
-			tree, err := a.GetDirectoryTree(workspacePath)
-			if err == nil {
-				dirLayout = serializeTree(tree, "", 0)
+			if appSettings.UseRepoMap {
+				activeFiles := a.GetActiveFiles(messages)
+				rme := NewRepoMapEngine(workspacePath)
+				repoMap, err := rme.BuildRepoMap(activeFiles, appSettings.RepoMapTokens, func(path string) bool {
+					return a.IsPathIgnored(workspacePath, path)
+				})
+				if err != nil {
+					tree, err := a.GetDirectoryTree(workspacePath)
+					if err == nil {
+						dirLayout = serializeTree(tree, "", 0)
+					}
+				} else {
+					dirLayout = repoMap
+				}
+			} else {
+				tree, err := a.GetDirectoryTree(workspacePath)
+				if err == nil {
+					dirLayout = serializeTree(tree, "", 0)
+				}
 			}
 
 			var toolList []string
@@ -154,7 +171,15 @@ You can invoke the following tools using XML blocks. Output ONLY one tool block 
 If you want to use a tool, you MUST output a tool XML block.
 If you have finished the task, output a clear wrap-up explanation without any tool blocks.`
 
+			techStackMsg := ""
+			if len(projectSettings.TechStack) > 0 {
+				techStackMsg = fmt.Sprintf("\n### PROJECT TECH STACK:\nThis project is configured with the following tech stack: %s. Please ensure all code modifications, command choices, and technical recommendations are tailored to this stack.\n", strings.Join(projectSettings.TechStack, ", "))
+			}
+
 			systemPrompt := fmt.Sprintf(strings.ReplaceAll(systemPromptRaw, "___", "```"), workspacePath, dirLayout, toolsSpec)
+			if techStackMsg != "" {
+				systemPrompt = techStackMsg + "\n" + systemPrompt
+			}
 
 			// 2. Call the LLM
 			reply, err := a.SendChatMessage(modelName, prompt, messages, systemPrompt)
@@ -559,4 +584,25 @@ func (a *App) StopAgent(tabID string) {
 		delete(a.agentCancels, tabID)
 	}
 	a.emitAgentStatus(tabID, "completed")
+}
+
+func (a *App) GetActiveFiles(messages []ChatMessage) []string {
+	activeMap := make(map[string]bool)
+	rePath := regexp.MustCompile(`(?s)<path>(.*?)</path>`)
+	for _, msg := range messages {
+		matches := rePath.FindAllStringSubmatch(msg.Content, -1)
+		for _, m := range matches {
+			if len(m) > 1 {
+				p := strings.TrimSpace(m[1])
+				if p != "" {
+					activeMap[p] = true
+				}
+			}
+		}
+	}
+	var list []string
+	for p := range activeMap {
+		list = append(list, p)
+	}
+	return list
 }

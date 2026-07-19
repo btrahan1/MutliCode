@@ -13,7 +13,10 @@ import {
   RenamePath,
   StartAgent,
   OpenPathInExplorer,
-  StopAgent
+  StopAgent,
+  CreateNewProject,
+  GetProjectSettings,
+  SaveProjectSettings
 } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { main } from "../wailsjs/go/models";
@@ -39,12 +42,16 @@ interface ProjectTab {
   agentStatus: 'idle' | 'running' | 'completed';
   agentGoal: string;
   chatInput: string;
+  techStack?: string[];
 }
+
+const TECH_STACKS = ["Wails", "Go", "React", "TypeScript", "HTML", ".NET", "Blazor", "Winforms"];
 
 const MODELS = [
   "big-pickle",
   "DeepSeek Flash Free",
-  "Gemini 2.5 Flash"
+  "Gemini 2.5 Flash",
+  "gemma4:26b"
 ];
 
 const getLanguageFromFilename = (filename: string): string => {
@@ -110,6 +117,14 @@ function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+  const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectParentDir, setNewProjectParentDir] = useState('');
+  const [newProjectTechStack, setNewProjectTechStack] = useState<string[]>([]);
+
+  const [isProjectSettingsOpen, setIsProjectSettingsOpen] = useState(false);
+  const [currentProjectTechStack, setCurrentProjectTechStack] = useState<string[]>([]);
+
   const [apiKeys, setApiKeys] = useState({
     geminiApiKey: '',
     openCodeApiKey: '',
@@ -119,7 +134,9 @@ function App() {
 
   const [toggles, setToggles] = useState({
     enableSearchCode: true,
-    enableContextCompression: true
+    enableContextCompression: true,
+    useRepoMap: false,
+    repoMapTokens: 1024
   });
 
   const [contextMenu, setContextMenu] = useState<{
@@ -211,7 +228,9 @@ function App() {
           });
           setToggles({
             enableSearchCode: loaded.enableSearchCode !== false,
-            enableContextCompression: loaded.enableContextCompression !== false
+            enableContextCompression: loaded.enableContextCompression !== false,
+            useRepoMap: loaded.useRepoMap === true,
+            repoMapTokens: loaded.repoMapTokens || 1024
           });
           setSidebarWidth(loaded.sidebarWidth || 260);
           setChatWidth(loaded.chatWidth || 320);
@@ -239,6 +258,7 @@ function App() {
                 ];
               }
               
+              const projSettings = await GetProjectSettings(path).catch(() => ({ techStack: [] }));
               restoredTabs.push({
                 id: Math.random().toString(36).substring(2, 9),
                 name: folderName,
@@ -251,7 +271,8 @@ function App() {
                 messages: savedHistory,
                 agentStatus: 'idle',
                 agentGoal: '',
-                chatInput: ''
+                chatInput: '',
+                techStack: projSettings.techStack || []
               });
             } catch (treeErr) {
               console.error(`Failed to restore workspace at ${path}:`, treeErr);
@@ -320,7 +341,9 @@ function App() {
       chatWidth,
       theme,
       enableSearchCode: toggles.enableSearchCode,
-      enableContextCompression: toggles.enableContextCompression
+      enableContextCompression: toggles.enableContextCompression,
+      useRepoMap: toggles.useRepoMap,
+      repoMapTokens: toggles.repoMapTokens
     };
 
     SaveSettings(settings as any).catch(err => console.error("Failed to save settings:", err));
@@ -372,6 +395,7 @@ function App() {
         return;
       }
 
+      const projSettings = await GetProjectSettings(path).catch(() => ({ techStack: [] }));
       const newTab: ProjectTab = {
         id: Math.random().toString(36).substring(2, 9),
         name: folderName,
@@ -382,11 +406,12 @@ function App() {
         isDirty: false,
         model: 'big-pickle',
         messages: [
-          new main.ChatMessage({ role: 'assistant', content: `Opened project: ${folderName}\nPath: ${path}` })
+          new main.ChatMessage({ role: 'assistant', content: `Opened project: ${folderName}\nPath: ${path}\nTech Stack: ${(projSettings.techStack || []).join(", ") || "None selected"}` })
         ],
         agentStatus: 'idle',
         agentGoal: '',
-        chatInput: ''
+        chatInput: '',
+        techStack: projSettings.techStack || []
       };
 
       setTabs(prev => {
@@ -396,6 +421,100 @@ function App() {
       setActiveTabId(newTab.id);
     } catch (err) {
       console.error("Failed to open project:", err);
+    }
+  };
+
+  const handleCreateNewProject = async () => {
+    if (!newProjectName.trim()) {
+      showToast("Please enter a project name", "error");
+      return;
+    }
+    if (!newProjectParentDir.trim()) {
+      showToast("Please select a parent directory", "error");
+      return;
+    }
+    try {
+      const createdPath = await CreateNewProject(newProjectParentDir, newProjectName.trim(), newProjectTechStack);
+      showToast(`Project ${newProjectName} created!`, "success");
+      setIsNewProjectOpen(false);
+      setNewProjectName('');
+      setNewProjectTechStack([]);
+
+      const folderName = newProjectName.trim();
+      const tree = await GetDirectoryTree(createdPath);
+
+      const newTab: ProjectTab = {
+        id: Math.random().toString(36).substring(2, 9),
+        name: folderName,
+        path: createdPath,
+        fileTree: tree,
+        activeFile: null,
+        fileContent: '',
+        isDirty: false,
+        model: 'big-pickle',
+        messages: [
+          new main.ChatMessage({ role: 'assistant', content: `Created and opened project: ${folderName}\nPath: ${createdPath}\nTech Stack: ${newProjectTechStack.join(", ") || "None"}` })
+        ],
+        agentStatus: 'idle',
+        agentGoal: '',
+        chatInput: '',
+        techStack: newProjectTechStack
+      };
+
+      setTabs(prev => {
+        const filtered = prev.filter(t => t.id !== 'welcome');
+        return [...filtered, newTab];
+      });
+      setActiveTabId(newTab.id);
+    } catch (err: any) {
+      showToast(`Error creating project: ${err}`, "error");
+    }
+  };
+
+  const handleBrowseParentDir = async () => {
+    try {
+      const dir = await SelectWorkspace();
+      if (dir) {
+        setNewProjectParentDir(dir);
+      }
+    } catch (err) {
+      console.error("Failed to select folder", err);
+    }
+  };
+
+  const handleOpenProjectSettings = async () => {
+    if (!activeTab || !activeTab.path) return;
+    try {
+      const settings = await GetProjectSettings(activeTab.path);
+      setCurrentProjectTechStack(settings.techStack || []);
+      setIsProjectSettingsOpen(true);
+    } catch (err) {
+      showToast("Failed to load project settings", "error");
+    }
+  };
+
+  const handleSaveProjectSettings = async () => {
+    if (!activeTab || !activeTab.path) return;
+    try {
+      await SaveProjectSettings(activeTab.path, { techStack: currentProjectTechStack });
+      showToast("Project settings saved!", "success");
+      
+      setTabs(prev => prev.map(t => {
+        if (t.id === activeTab.id) {
+          return {
+            ...t,
+            techStack: currentProjectTechStack,
+            messages: [
+              ...t.messages,
+              new main.ChatMessage({ role: 'assistant', content: `Updated project tech stack: ${currentProjectTechStack.join(", ") || "None"}` })
+            ]
+          };
+        }
+        return t;
+      }));
+      setIsProjectSettingsOpen(false);
+    } catch (err) {
+      showToast("Failed to save project settings", "error");
     }
   };
 
@@ -872,6 +991,14 @@ function App() {
             <button className="header-icon-btn" onClick={() => setIsSettingsOpen(true)} title="Settings">
               ⚙️
             </button>
+            {activeTab && activeTab.path && (
+              <button className="header-icon-btn" onClick={handleOpenProjectSettings} title="Project Settings">
+                🛠️
+              </button>
+            )}
+            <button className="new-project-btn secondary-new-btn" style={{ marginRight: '8px' }} onClick={() => setIsNewProjectOpen(true)} title="Create New Project">
+              + New Project
+            </button>
             <button className="new-project-btn" onClick={handleOpenProject} title="Open Project Folder">
               + Open Folder
             </button>
@@ -1127,9 +1254,134 @@ function App() {
                   Enable Conversation Log Compression (Sliding Window)
                 </label>
               </div>
+              <div className="form-group checkbox-group">
+                <label className="checkbox-label">
+                  <input 
+                    type="checkbox" 
+                    checked={toggles.useRepoMap} 
+                    onChange={(e) => setToggles(prev => ({ ...prev, useRepoMap: e.target.checked }))}
+                  />
+                  Use Repository Map (PageRank Skeleton prompt compression)
+                </label>
+              </div>
+              {toggles.useRepoMap && (
+                <div className="form-group" style={{ paddingLeft: '24px' }}>
+                  <label>Repo Map Token Limit</label>
+                  <input 
+                    type="number" 
+                    value={toggles.repoMapTokens} 
+                    onChange={(e) => setToggles(prev => ({ ...prev, repoMapTokens: parseInt(e.target.value) || 0 }))}
+                    placeholder="1024"
+                    style={{ width: '100px' }}
+                  />
+                </div>
+              )}
             </div>
             <div className="settings-modal-footer">
               <button className="secondary-btn" onClick={() => setIsSettingsOpen(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Project Modal Overlay */}
+      {isNewProjectOpen && (
+        <div className="settings-overlay" onClick={() => setIsNewProjectOpen(false)}>
+          <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="settings-modal-header">
+              <h2>Create New Project</h2>
+              <button className="close-modal-btn" onClick={() => setIsNewProjectOpen(false)}>×</button>
+            </div>
+            <div className="settings-modal-body">
+              <div className="form-group">
+                <label>Project Name</label>
+                <input 
+                  type="text" 
+                  value={newProjectName} 
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  placeholder="e.g. MyAwesomeApp"
+                />
+              </div>
+              <div className="form-group">
+                <label>Parent Directory</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input 
+                    type="text" 
+                    value={newProjectParentDir} 
+                    onChange={(e) => setNewProjectParentDir(e.target.value)}
+                    placeholder="Select folder..."
+                    style={{ flex: 1 }}
+                  />
+                  <button className="secondary-btn" onClick={handleBrowseParentDir}>Browse...</button>
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Tech Stack Checklist</label>
+                <div className="tech-stack-grid">
+                  {TECH_STACKS.map(tech => (
+                    <label key={tech} className="checkbox-label tech-checkbox">
+                      <input 
+                        type="checkbox" 
+                        checked={newProjectTechStack.includes(tech)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setNewProjectTechStack(prev => [...prev, tech]);
+                          } else {
+                            setNewProjectTechStack(prev => prev.filter(t => t !== tech));
+                          }
+                        }}
+                      />
+                      {tech}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="settings-modal-footer">
+              <button className="secondary-btn" onClick={() => setIsNewProjectOpen(false)}>Cancel</button>
+              <button className="save-btn dirty" onClick={handleCreateNewProject}>Create Project</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Project Settings Modal Overlay */}
+      {isProjectSettingsOpen && (
+        <div className="settings-overlay" onClick={() => setIsProjectSettingsOpen(false)}>
+          <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="settings-modal-header">
+              <h2>Project Settings - {activeTab?.name}</h2>
+              <button className="close-modal-btn" onClick={() => setIsProjectSettingsOpen(false)}>×</button>
+            </div>
+            <div className="settings-modal-body">
+              <p style={{ marginBottom: '12px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Configure the tech stack for this project. The AI agent will use this context to tailor its solutions.
+              </p>
+              <div className="form-group">
+                <label>Tech Stack Checklist</label>
+                <div className="tech-stack-grid">
+                  {TECH_STACKS.map(tech => (
+                    <label key={tech} className="checkbox-label tech-checkbox">
+                      <input 
+                        type="checkbox" 
+                        checked={currentProjectTechStack.includes(tech)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setCurrentProjectTechStack(prev => [...prev, tech]);
+                          } else {
+                            setCurrentProjectTechStack(prev => prev.filter(t => t !== tech));
+                          }
+                        }}
+                      />
+                      {tech}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="settings-modal-footer">
+              <button className="secondary-btn" onClick={() => setIsProjectSettingsOpen(false)}>Cancel</button>
+              <button className="save-btn dirty" onClick={handleSaveProjectSettings}>Save Settings</button>
             </div>
           </div>
         </div>

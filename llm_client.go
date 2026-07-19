@@ -254,7 +254,10 @@ func callOpenCode(modelName string, prompt string, history []ChatMessage, system
 }
 
 func callOllama(modelName string, prompt string, history []ChatMessage, systemPrompt string, endpoint string) (string, error) {
-	url := fmt.Sprintf("%s/api/chat", endpoint)
+	cleanedEndpoint := strings.TrimSuffix(endpoint, "/")
+	cleanedEndpoint = strings.TrimSuffix(cleanedEndpoint, "/v1")
+	cleanedEndpoint = strings.TrimSuffix(cleanedEndpoint, "/")
+	url := fmt.Sprintf("%s/api/chat", cleanedEndpoint)
 
 	type OllamaMsg struct {
 		Role    string `json:"role"`
@@ -275,6 +278,9 @@ func callOllama(modelName string, prompt string, history []ChatMessage, systemPr
 		"model":    modelName,
 		"messages": messages,
 		"stream":   false,
+		"options": map[string]interface{}{
+			"num_ctx": 32768,
+		},
 	}
 
 	jsonBytes, err := json.Marshal(reqBody)
