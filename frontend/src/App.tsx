@@ -1027,7 +1027,6 @@ function App() {
     try {
       const tree = await GetDirectoryTree(activeTab.path);
       setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, fileTree: tree } : t));
-      showToast("Explorer refreshed", "success");
     } catch (err) {
       showToast(`Failed to refresh explorer: ${err}`, "error");
     }
