@@ -1,12 +1,12 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -86,12 +86,11 @@ func (a *App) StartTerminal(tabID string, workspacePath string) error {
 	}
 	termSessions[tabID] = session
 
-	// Read stdout in a goroutine
+	// Read stdout in a goroutine (directly from pipe to avoid delay buffering)
 	go func() {
-		reader := bufio.NewReader(stdout)
 		buf := make([]byte, 1024)
 		for {
-			n, err := reader.Read(buf)
+			n, err := stdout.Read(buf)
 			if n > 0 {
 				runtime.EventsEmit(a.ctx, "terminal:output", TerminalOutputEvent{
 					TabID: tabID,
@@ -104,12 +103,11 @@ func (a *App) StartTerminal(tabID string, workspacePath string) error {
 		}
 	}()
 
-	// Read stderr in a goroutine
+	// Read stderr in a goroutine (directly from pipe to avoid delay buffering)
 	go func() {
-		reader := bufio.NewReader(stderr)
 		buf := make([]byte, 1024)
 		for {
-			n, err := reader.Read(buf)
+			n, err := stderr.Read(buf)
 			if n > 0 {
 				runtime.EventsEmit(a.ctx, "terminal:output", TerminalOutputEvent{
 					TabID: tabID,
@@ -143,6 +141,11 @@ func (a *App) SendTerminalInput(tabID string, input string) error {
 
 	if !exists {
 		return fmt.Errorf("no terminal session active for tab: %s", tabID)
+	}
+
+	// On Windows, translate standard backspace keycode \x7f to \x08
+	if os.Getenv("OS") == "Windows_NT" {
+		input = strings.ReplaceAll(input, "\x7f", "\x08")
 	}
 
 	_, err := session.Stdin.Write([]byte(input))

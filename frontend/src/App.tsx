@@ -532,6 +532,19 @@ function App() {
         };
         EventsOn("terminal:output", handleOutput);
 
+        // Intercept Ctrl+V to support paste in xterm.js
+        term.attachCustomKeyEventHandler((e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === 'v' && e.type === 'keydown') {
+            navigator.clipboard.readText()
+              .then(text => {
+                SendTerminalInput(activeTab.id, text).catch(() => {});
+              })
+              .catch(err => console.error("Clipboard paste error: ", err));
+            return false; // Prevent default xterm key handling
+          }
+          return true;
+        });
+
         const keyDisposable = term.onData((data) => {
           SendTerminalInput(activeTab.id, data).catch(() => {});
         });
