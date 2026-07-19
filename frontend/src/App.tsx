@@ -21,7 +21,8 @@ import {
   RejectPlan,
   RunProject,
   StopProject,
-  OpenBrowserURL
+  OpenBrowserURL,
+  GetProjectSourceString
 } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { main } from "../wailsjs/go/models";
@@ -1060,6 +1061,17 @@ function App() {
     );
   };
 
+  const handleCopySource = () => {
+    if (!activeTab || !activeTab.path) return;
+    GetProjectSourceString(activeTab.path)
+      .then((sourceText) => {
+        navigator.clipboard.writeText(sourceText)
+          .then(() => showToast("Project source copied to clipboard!", "success"))
+          .catch(err => showToast(`Failed to copy to clipboard: ${err}`, "error"));
+      })
+      .catch((err) => showToast(`Failed to harvest source: ${err}`, "error"));
+  };
+
   const handleSwitchView = (view: 'editor' | 'plan') => {
     if (!activeTab) return;
     setTabs(prev => prev.map(t => t.id === activeTab.id ? { ...t, activeView: view } : t));
@@ -1276,6 +1288,7 @@ function App() {
                 </div>
                 {activeTab.path && (
                   <div className="explorer-quick-actions">
+                    <button title="Copy Project Source" onClick={handleCopySource}>📋</button>
                     <button title="Refresh Explorer" onClick={handleRefreshExplorer}>🔄</button>
                     <button title="New File" onClick={handleCreateFile}>+📄</button>
                     <button title="New Folder" onClick={handleCreateDirectory}>+📁</button>

@@ -441,4 +441,81 @@ func createCommand(dir string, name string, args []string) *exec.Cmd {
 	return cmd
 }
 
+func (a *App) GetProjectSourceString(projectPath string) (string, error) {
+	if projectPath == "" {
+		return "", fmt.Errorf("project path is empty")
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# Project Source: %s\n\n", filepath.Base(projectPath)))
+
+	allowedExtensions := map[string]bool{
+		".go": true, ".cs": true, ".ts": true, ".tsx": true,
+		".js": true, ".jsx": true, ".html": true, ".css": true,
+		".json": true, ".md": true, ".cpp": true, ".hpp": true,
+		".c": true, ".h": true, ".py": true, ".rs": true,
+		".yaml": true, ".yml": true, ".xml": true, ".sh": true,
+		".bat": true, ".sql": true, ".csproj": true, ".sln": true,
+		".config": true, ".gitignore": true, ".razor": true,
+	}
+
+	err := filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		if a.IsPathIgnored(projectPath, path) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(path))
+		baseName := strings.ToLower(info.Name())
+		isSpecialText := baseName == "dockerfile" || baseName == "makefile" || baseName == "go.mod" || baseName == "go.sum" || baseName == ".gitignore"
+
+		if allowedExtensions[ext] || isSpecialText {
+			if info.Size() > 500*1024 {
+				return nil
+			}
+
+			rel, err := filepath.Rel(projectPath, path)
+			if err != nil {
+				return nil
+			}
+
+			contentBytes, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+
+			cleanExt := strings.TrimPrefix(ext, ".")
+			if cleanExt == "" {
+				cleanExt = "text"
+			}
+			if cleanExt == "razor" {
+				cleanExt = "html"
+			}
+
+			sb.WriteString(fmt.Sprintf("# File: %s\n", filepath.ToSlash(rel)))
+			sb.WriteString(fmt.Sprintf("```%s\n", cleanExt))
+			sb.Write(contentBytes)
+			sb.WriteString("\n```\n\n")
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	return sb.String(), nil
+}
+
 

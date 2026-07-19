@@ -38,6 +38,10 @@ export function GetProjectSettings(arg1) {
   return window['go']['main']['App']['GetProjectSettings'](arg1);
 }
 
+export function GetProjectSourceString(arg1) {
+  return window['go']['main']['App']['GetProjectSourceString'](arg1);
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }

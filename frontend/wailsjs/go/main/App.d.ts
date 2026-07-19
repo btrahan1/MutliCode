@@ -20,6 +20,8 @@ export function GetFileContent(arg1:string,arg2:string):Promise<string>;
 
 export function GetProjectSettings(arg1:string):Promise<main.ProjectSettings>;
 
+export function GetProjectSourceString(arg1:string):Promise<string>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function IsPathIgnored(arg1:string,arg2:string):Promise<boolean>;
