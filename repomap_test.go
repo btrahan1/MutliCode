@@ -245,3 +245,42 @@ func Run() {
 		t.Errorf("expected output to contain NewDBClient: %s", output)
 	}
 }
+
+func TestParseFallbackPlan(t *testing.T) {
+	// Test markdown table extraction
+	markdownTableText := `
+I'll propose a plan.
+
+| Task | Description |
+|------|-------------|
+| **1. Scaffold solution** | Create new hosted Blazor WASM project using dotnet new blazorwasm --hosted. |
+| **2. Add EF Core + SQLite** | Install Microsoft.EntityFrameworkCore.Sqlite. |
+`
+	plan := parseFallbackPlan(markdownTableText)
+	if plan == nil {
+		t.Fatalf("expected plan, got nil")
+	}
+	if len(plan.Tasks) != 2 {
+		t.Errorf("expected 2 tasks, got %d", len(plan.Tasks))
+	}
+	if plan.Tasks[0].Description != "1. Scaffold solution: Create new hosted Blazor WASM project using dotnet new blazorwasm --hosted." {
+		t.Errorf("unexpected description: %s", plan.Tasks[0].Description)
+	}
+
+	// Test numbered list extraction
+	listText := `
+Here is my plan:
+1. Setup DB - Configure connection string.
+2. Build UI - Write HTML and CSS.
+`
+	plan2 := parseFallbackPlan(listText)
+	if plan2 == nil {
+		t.Fatalf("expected plan2, got nil")
+	}
+	if len(plan2.Tasks) != 2 {
+		t.Errorf("expected 2 tasks, got %d", len(plan2.Tasks))
+	}
+	if plan2.Tasks[0].Description != "Setup DB: Configure connection string." {
+		t.Errorf("unexpected description: %s", plan2.Tasks[0].Description)
+	}
+}

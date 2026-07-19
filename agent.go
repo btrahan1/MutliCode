@@ -236,6 +236,19 @@ If you have finished the task, output a clear wrap-up explanation without any to
 			// 3. Parse tool calls
 			toolCall := parseToolCall(reply)
 			if toolCall == nil {
+				if currentPlan == nil {
+					fallbackPlan := parseFallbackPlan(reply)
+					if fallbackPlan != nil {
+						toolCall = &ParsedTool{
+							Name:    "submit_plan",
+							Content: fallbackPlan.Description,
+							Tasks:   fallbackPlan.Tasks,
+						}
+					}
+				}
+			}
+
+			if toolCall == nil {
 				// No more tool calls, agent is finished!
 				a.emitAgentStatus(tabID, "completed")
 				return
@@ -752,4 +765,83 @@ func (a *App) RejectPlan(tabID string, feedback string) {
 	if exists {
 		ch <- "rejected:" + feedback
 	}
+}
+
+func parseFallbackPlan(text string) *AgentPlan {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	var tasks []TaskItem
+	var descLines []string
+
+	tableMode := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|") {
+			parts := strings.Split(trimmed, "|")
+			if len(parts) >= 4 {
+				col1 := strings.TrimSpace(parts[1])
+				col2 := strings.TrimSpace(parts[2])
+
+				if strings.ToLower(col1) == "task" || strings.Contains(col1, "---") {
+					continue
+				}
+
+				if col1 != "" && col2 != "" {
+					col1 = strings.Trim(col1, "* ")
+					tasks = append(tasks, TaskItem{
+						ID:          fmt.Sprintf("task%d", len(tasks)+1),
+						Description: fmt.Sprintf("%s: %s", col1, col2),
+						Status:      "pending",
+					})
+				}
+			}
+			tableMode = true
+		} else if !tableMode {
+			if trimmed != "" {
+				descLines = append(descLines, trimmed)
+			}
+		}
+	}
+
+	if len(tasks) == 0 {
+		descLines = nil
+		listMode := false
+		listRegex := regexp.MustCompile(`^\s*(\d+)\.\s*([^:-]+)(?:[: -]+)?(.*)`)
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if match := listRegex.FindStringSubmatch(trimmed); match != nil {
+				title := strings.TrimSpace(match[2])
+				body := strings.TrimSpace(match[3])
+				desc := title
+				if body != "" {
+					desc = fmt.Sprintf("%s: %s", title, body)
+				}
+				tasks = append(tasks, TaskItem{
+					ID:          fmt.Sprintf("task%d", len(tasks)+1),
+					Description: desc,
+					Status:      "pending",
+				})
+				listMode = true
+			} else if !listMode {
+				if trimmed != "" {
+					descLines = append(descLines, trimmed)
+				}
+			}
+		}
+	}
+
+	if len(tasks) > 0 {
+		desc := "Fallback plan extracted from assistant reply."
+		if len(descLines) > 0 {
+			desc = strings.Join(descLines, "\n")
+			if len(desc) > 300 {
+				desc = desc[:297] + "..."
+			}
+		}
+		return &AgentPlan{
+			Description: desc,
+			Tasks:       tasks,
+		}
+	}
+
+	return nil
 }
