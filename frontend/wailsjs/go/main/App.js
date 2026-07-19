@@ -110,8 +110,16 @@ export function SendChatMessage(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['SendChatMessage'](arg1, arg2, arg3, arg4);
 }
 
+export function SendTerminalInput(arg1, arg2) {
+  return window['go']['main']['App']['SendTerminalInput'](arg1, arg2);
+}
+
 export function StartAgent(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['StartAgent'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
+export function StartTerminal(arg1, arg2) {
+  return window['go']['main']['App']['StartTerminal'](arg1, arg2);
 }
 
 export function StopAgent(arg1) {
@@ -120,4 +128,8 @@ export function StopAgent(arg1) {
 
 export function StopProject(arg1) {
   return window['go']['main']['App']['StopProject'](arg1);
+}
+
+export function StopTerminal(arg1) {
+  return window['go']['main']['App']['StopTerminal'](arg1);
 }

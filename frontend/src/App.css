@@ -1656,3 +1656,76 @@ body {
   width: 100%;
   overflow: hidden;
 }
+
+/* Terminal Panel Styles */
+.terminal-panel {
+  width: 100%;
+  background: #07090d;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.terminal-resizer {
+  height: 4px;
+  width: 100%;
+  cursor: ns-resize;
+  background: transparent;
+  transition: background 0.2s;
+  z-index: 10;
+}
+
+.terminal-resizer:hover {
+  background: var(--accent-cyan);
+}
+
+.terminal-panel-header {
+  background: var(--bg-card);
+  padding: 6px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-color);
+  user-select: none;
+}
+
+.terminal-panel-header span {
+  font-size: 0.78rem;
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.close-terminal-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.close-terminal-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-main);
+}
+
+.terminal-panel-body {
+  flex: 1;
+  width: 100%;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.terminal-panel-body .xterm {
+  height: 100%;
+}

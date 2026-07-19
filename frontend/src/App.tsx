@@ -26,11 +26,16 @@ import {
   GetRepoGraph,
   ApproveDiff,
   RejectDiff,
-  GetPendingDiff
+  GetPendingDiff,
+  StartTerminal,
+  SendTerminalInput,
+  StopTerminal
 } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { main } from "../wailsjs/go/models";
 import Editor, { DiffEditor } from '@monaco-editor/react';
+import { Terminal } from 'xterm';
+import 'xterm/css/xterm.css';
 
 interface FileNode {
   name: string;
@@ -143,6 +148,8 @@ function App() {
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [chatWidth, setChatWidth] = useState(320);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const [terminalHeight, setTerminalHeight] = useState(200);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -438,6 +445,7 @@ function App() {
       EventsOff("agent:history_update");
       EventsOff("project:status");
       EventsOff("project:url");
+      EventsOff("terminal:output");
       window.removeEventListener('click', hideMenu);
     };
   }, []);
@@ -485,6 +493,60 @@ function App() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeTab?.messages, activeTab?.agentStatus]);
+
+  const terminalContainerRef = useRef<HTMLDivElement | null>(null);
+  const activeTermRef = useRef<Terminal | null>(null);
+
+  // Monitor terminal sessions
+  useEffect(() => {
+    if (!activeTab || !activeTab.path || !isTerminalOpen) {
+      if (activeTermRef.current) {
+        activeTermRef.current.dispose();
+        activeTermRef.current = null;
+      }
+      return;
+    }
+
+    // Start shell on backend
+    StartTerminal(activeTab.id, activeTab.path)
+      .then(() => {
+        if (!terminalContainerRef.current) return;
+
+        // Initialize xterm
+        const term = new Terminal({
+          cursorBlink: true,
+          fontSize: 12,
+          fontFamily: 'Consolas, Courier New, monospace',
+          theme: {
+            background: '#07090d',
+            foreground: '#f3f4f6'
+          }
+        });
+        activeTermRef.current = term;
+        term.open(terminalContainerRef.current);
+
+        const handleOutput = (event: { tabId: string; data: string }) => {
+          if (event.tabId === activeTab.id) {
+            term.write(event.data);
+          }
+        };
+        EventsOn("terminal:output", handleOutput);
+
+        const keyDisposable = term.onData((data) => {
+          SendTerminalInput(activeTab.id, data).catch(() => {});
+        });
+
+        // Trigger prompt
+        SendTerminalInput(activeTab.id, "\r").catch(() => {});
+
+        return () => {
+          keyDisposable.dispose();
+          term.dispose();
+          EventsOff("terminal:output");
+        };
+      })
+      .catch((err) => console.error("Failed to init terminal:", err));
+  }, [activeTab?.id, isTerminalOpen]);
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
@@ -673,6 +735,7 @@ function App() {
 
   const handleCloseTab = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    StopTerminal(id);
     setTabs(prev => {
       const nextTabs = prev.filter(t => t.id !== id);
       if (activeTabId === id) {
@@ -976,6 +1039,27 @@ function App() {
       const newWidth = startWidth - (moveEvent.clientX - startX);
       if (newWidth > 200 && newWidth < 800) {
         setChatWidth(newWidth);
+      }
+    };
+
+    const stopResize = () => {
+      document.removeEventListener('mousemove', doResize);
+      document.removeEventListener('mouseup', stopResize);
+    };
+
+    document.addEventListener('mousemove', doResize);
+    document.addEventListener('mouseup', stopResize);
+  };
+
+  const startResizeTerminal = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = terminalHeight;
+
+    const doResize = (moveEvent: MouseEvent) => {
+      const newHeight = startHeight - (moveEvent.clientY - startY);
+      if (newHeight > 80 && newHeight < 600) {
+        setTerminalHeight(newHeight);
       }
     };
 
@@ -1467,6 +1551,15 @@ function App() {
             })}
           </div>
           <div className="header-controls">
+            {activeTab && activeTab.path && (
+              <button 
+                className={`header-icon-btn ${isTerminalOpen ? 'active' : ''}`} 
+                onClick={() => setIsTerminalOpen(!isTerminalOpen)} 
+                title="Toggle Terminal Panel"
+              >
+                💻
+              </button>
+            )}
             <button className="header-icon-btn" onClick={toggleTheme} title="Toggle Day/Night Theme">
               {theme === 'dark' ? '🌙' : '☀️'}
             </button>
@@ -1589,7 +1682,7 @@ function App() {
                   </>
                 )}
               </div>
-              <div className="editor-wrapper">
+              <div className="editor-wrapper" style={{ height: isTerminalOpen ? `calc(100% - ${terminalHeight}px)` : '100%' }}>
                 {activeTab.activeView === 'plan' && activeTab.agentPlan ? (
                   renderPlanView()
                 ) : activeTab.activeView === 'map' ? (
@@ -1636,6 +1729,19 @@ function App() {
                   </div>
                 )}
               </div>
+
+              {isTerminalOpen && (
+                <>
+                  <div className="terminal-resizer" onMouseDown={startResizeTerminal}></div>
+                  <div className="terminal-panel" style={{ height: terminalHeight }}>
+                    <div className="terminal-panel-header">
+                      <span>Terminal (Interactive)</span>
+                      <button className="close-terminal-btn" onClick={() => setIsTerminalOpen(false)}>×</button>
+                    </div>
+                    <div className="terminal-panel-body" ref={terminalContainerRef}></div>
+                  </div>
+                </>
+              )}
             </main>
 
             {/* Splitter 2 */}
