@@ -52,12 +52,13 @@ interface ProjectTab {
   isDirty: boolean;
   model: string;
   messages: main.ChatMessage[];
-  agentStatus: 'idle' | 'running' | 'completed' | 'waiting_for_approval';
+  agentStatus: 'idle' | 'running' | 'completed' | 'waiting_for_approval' | 'waiting_for_command_approval';
   agentGoal: string;
   chatInput: string;
   techStack?: string[];
   activeView?: 'editor' | 'plan';
   agentPlan?: AgentPlan | null;
+  pendingCommand?: string | null;
 }
 
 const TECH_STACKS = ["Wails", "Go", "React", "TypeScript", "HTML", ".NET", "Blazor", "Winforms"];
@@ -197,14 +198,29 @@ function App() {
     });
 
     // Listen to agent plan updates
-    EventsOn("agent:plan", (event: { tabId: string; status: 'idle' | 'running' | 'completed' | 'waiting_for_approval'; plan: AgentPlan | null }) => {
+    EventsOn("agent:plan", (event: { tabId: string; status: 'idle' | 'running' | 'completed' | 'waiting_for_approval' | 'waiting_for_command_approval'; plan: AgentPlan | null }) => {
       setTabs(prev => prev.map(t => {
         if (t.id === event.tabId) {
           return {
             ...t,
             agentStatus: event.status,
             agentPlan: event.plan,
-            activeView: event.plan ? 'plan' : t.activeView
+            activeView: event.plan ? 'plan' : t.activeView,
+            pendingCommand: null
+          };
+        }
+        return t;
+      }));
+    });
+
+    // Listen to agent command approval requests
+    EventsOn("agent:command_approval", (event: { tabId: string; status: 'idle' | 'running' | 'completed' | 'waiting_for_command_approval'; command: string }) => {
+      setTabs(prev => prev.map(t => {
+        if (t.id === event.tabId) {
+          return {
+            ...t,
+            agentStatus: event.status,
+            pendingCommand: event.command
           };
         }
         return t;
@@ -225,7 +241,7 @@ function App() {
     });
 
     // Listen to agent status updates
-    EventsOn("agent:status", (event: { tabId: string; status: 'idle' | 'running' | 'completed' | 'waiting_for_approval' }) => {
+    EventsOn("agent:status", (event: { tabId: string; status: 'idle' | 'running' | 'completed' | 'waiting_for_approval' | 'waiting_for_command_approval' }) => {
       setTabs(prev => prev.map(t => {
         if (t.id === event.tabId) {
           const wasRunning = t.agentStatus === "running";
@@ -306,7 +322,8 @@ function App() {
                 chatInput: '',
                 techStack: projSettings.techStack || [],
                 activeView: 'editor',
-                agentPlan: null
+                agentPlan: null,
+                pendingCommand: null
               });
             } catch (treeErr) {
               console.error(`Failed to restore workspace at ${path}:`, treeErr);
@@ -341,6 +358,7 @@ function App() {
     return () => {
       EventsOff("agent:message");
       EventsOff("agent:plan");
+      EventsOff("agent:command_approval");
       EventsOff("agent:status");
       EventsOff("agent:history_update");
       window.removeEventListener('click', hideMenu);
@@ -411,7 +429,8 @@ function App() {
       agentGoal: '',
       chatInput: '',
       activeView: 'editor',
-      agentPlan: null
+      agentPlan: null,
+      pendingCommand: null
     };
     setTabs([welcome]);
     setActiveTabId('welcome');
@@ -451,7 +470,8 @@ function App() {
         chatInput: '',
         techStack: projSettings.techStack || [],
         activeView: 'editor',
-        agentPlan: null
+        agentPlan: null,
+        pendingCommand: null
       };
 
       setTabs(prev => {
@@ -500,7 +520,8 @@ function App() {
         chatInput: '',
         techStack: newProjectTechStack,
         activeView: 'editor',
-        agentPlan: null
+        agentPlan: null,
+        pendingCommand: null
       };
 
       setTabs(prev => {
@@ -1010,6 +1031,24 @@ function App() {
       .catch(err => showToast(`Error approving plan: ${err}`, "error"));
   };
 
+  const handleApproveCommand = () => {
+    if (!activeTab) return;
+    ApprovePlan(activeTab.id)
+      .then(() => {
+        showToast("Command allowed", "success");
+      })
+      .catch(err => showToast(`Error: ${err}`, "error"));
+  };
+
+  const handleRejectCommand = () => {
+    if (!activeTab) return;
+    RejectPlan(activeTab.id, "Command execution denied by user.")
+      .then(() => {
+        showToast("Command blocked", "info");
+      })
+      .catch(err => showToast(`Error: ${err}`, "error"));
+  };
+
   const handleRejectPlanClick = () => {
     if (!activeTab) return;
     const feedback = prompt("Please provide instructions on what to change in the plan:");
@@ -1288,15 +1327,30 @@ function App() {
                 <div ref={messagesEndRef} />
               </div>
 
+              {activeTab.agentStatus === 'waiting_for_command_approval' && activeTab.pendingCommand && (
+                <div className="command-approval-gate">
+                  <div className="command-warning-header">
+                    <span>⚠️ Dangerous Command Blocked</span>
+                  </div>
+                  <pre className="command-warning-code">
+                    <code>{activeTab.pendingCommand}</code>
+                  </pre>
+                  <div className="command-warning-actions">
+                    <button className="approve-command-btn" onClick={handleApproveCommand}>Allow</button>
+                    <button className="reject-command-btn" onClick={handleRejectCommand}>Deny</button>
+                  </div>
+                </div>
+              )}
+
               <div className="chat-input-area">
                 <input
                   type="text"
-                  placeholder={activeTab.agentStatus === 'running' ? "Agent is working..." : "Instruct the agent..."}
+                  placeholder={(activeTab.agentStatus === 'running' || activeTab.agentStatus === 'waiting_for_command_approval' || activeTab.agentStatus === 'waiting_for_approval') ? "Agent is working..." : "Instruct the agent..."}
                   value={activeTab.chatInput || ""}
                   onChange={(e) => handleChatInputChange(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && activeTab.agentStatus !== 'running' && handleSendMessage()}
+                  onKeyDown={(e) => e.key === 'Enter' && activeTab.agentStatus !== 'running' && activeTab.agentStatus !== 'waiting_for_command_approval' && handleSendMessage()}
                   className="chat-input"
-                  disabled={activeTab.agentStatus === 'running'}
+                  disabled={activeTab.agentStatus === 'running' || activeTab.agentStatus === 'waiting_for_command_approval' || activeTab.agentStatus === 'waiting_for_approval'}
                 />
                 {activeTab.agentStatus === 'running' ? (
                   <button className="send-btn stop" onClick={handleStopAgent} title="Stop Agent">

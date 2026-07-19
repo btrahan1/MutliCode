@@ -28,11 +28,12 @@ type AgentPlan struct {
 
 type AgentEvent struct {
 	TabID    string        `json:"tabId"`
-	Type     string        `json:"type"` // "message" | "status" | "history_update" | "plan"
+	Type     string        `json:"type"` // "message" | "status" | "history_update" | "plan" | "command_approval"
 	Message  ChatMessage   `json:"message"`
 	Messages []ChatMessage `json:"messages"`
-	Status   string        `json:"status"` // "idle" | "running" | "completed" | "waiting_for_approval"
+	Status   string        `json:"status"` // "idle" | "running" | "completed" | "waiting_for_approval" | "waiting_for_command_approval"
 	Plan     *AgentPlan    `json:"plan,omitempty"`
+	Command  string        `json:"command,omitempty"`
 }
 
 // StartAgent launches the background agent execution loop.
@@ -314,6 +315,33 @@ If you have finished the task, output a clear wrap-up explanation without any to
 					}
 				} else {
 					toolOutput = "Error: No active plan found. Please submit a plan first using submit_plan."
+				}
+			} else if toolCall.Name == "run_command" {
+				if isDangerousCommand(toolCall.Cmd) {
+					// Emit command approval request to frontend
+					a.emitAgentCommandApproval(tabID, toolCall.Cmd, "waiting_for_command_approval")
+
+					ch := make(chan string)
+					a.planApprovalsMu.Lock()
+					a.planApprovals[tabID] = ch
+					a.planApprovalsMu.Unlock()
+
+					// Wait on channel
+					approvalResult := <-ch
+
+					a.planApprovalsMu.Lock()
+					delete(a.planApprovals, tabID)
+					a.planApprovalsMu.Unlock()
+
+					if approvalResult == "approved" {
+						a.emitAgentStatus(tabID, "running")
+						toolOutput = a.executeTool(workspacePath, toolCall)
+					} else {
+						toolOutput = fmt.Sprintf("Error: Command '%s' was denied by the user due to safety policies.", toolCall.Cmd)
+						a.emitAgentStatus(tabID, "running")
+					}
+				} else {
+					toolOutput = a.executeTool(workspacePath, toolCall)
 				}
 			} else {
 				// 4. Execute tool call
@@ -856,4 +884,26 @@ func parseFallbackPlan(text string) *AgentPlan {
 	}
 
 	return nil
+}
+
+func isDangerousCommand(cmd string) bool {
+	cmdLower := strings.ToLower(cmd)
+	dangerousTerms := []string{
+		"rm ", "rmdir", "del ", "erase", "rd ", "git clean", "git reset --hard", "format",
+	}
+	for _, term := range dangerousTerms {
+		if strings.Contains(cmdLower, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) emitAgentCommandApproval(tabID string, command string, status string) {
+	runtime.EventsEmit(a.ctx, "agent:command_approval", AgentEvent{
+		TabID:   tabID,
+		Type:    "command_approval",
+		Status:  status,
+		Command: command,
+	})
 }
