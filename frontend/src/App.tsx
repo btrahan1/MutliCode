@@ -1763,14 +1763,40 @@ function App() {
             {/* Right Chat Assistant */}
             <aside className="chat-sidebar" style={{ width: chatWidth }}>
               <div className="chat-header">
-                <div className="model-selector-wrapper">
+                <div className="model-selector-wrapper" style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                   <select 
-                    value={activeTab.model} 
-                    onChange={(e) => handleModelChange(e.target.value)}
+                    value={MODELS.includes(activeTab.model) ? activeTab.model : "custom"} 
+                    onChange={(e) => {
+                      if (e.target.value === "custom") {
+                        handleModelChange("meta-llama/llama-3.3-70b-instruct:free");
+                      } else {
+                        handleModelChange(e.target.value);
+                      }
+                    }}
                     className="model-select"
                   >
                     {MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+                    <option value="custom">Custom Model...</option>
                   </select>
+                  {(!MODELS.includes(activeTab.model) || activeTab.model === "custom") && (
+                    <input 
+                      type="text"
+                      value={activeTab.model === "custom" ? "" : activeTab.model}
+                      onChange={(e) => handleModelChange(e.target.value)}
+                      placeholder="Enter model identifier..."
+                      className="model-custom-input"
+                      style={{
+                        width: '180px',
+                        background: '#0d1117',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '4px',
+                        padding: '4px 8px',
+                        color: 'var(--text-main)',
+                        fontSize: '0.8rem',
+                        outline: 'none'
+                      }}
+                    />
+                  )}
                 </div>
                 <div className="chat-header-actions">
                   <button className="clear-chat-btn" onClick={handleManualCompress} title="Compress Context History (Manual)">
