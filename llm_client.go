@@ -63,7 +63,16 @@ func (a *App) SendChatMessage(modelName string, prompt string, history []ChatMes
 		return callGemini(modelName, prompt, history, systemPrompt, apiKey)
 	}
 
-	// Route 3: Local Ollama
+	// Route 3: OpenRouter Models
+	if strings.Contains(modelName, "/") {
+		apiKey := settings.OpenRouterApiKey
+		if apiKey == "" {
+			return "", fmt.Errorf("OpenRouter API key is not configured. Please verify your settings.")
+		}
+		return callOpenRouter(modelName, prompt, history, systemPrompt, apiKey)
+	}
+
+	// Route 4: Local Ollama
 	ollamaURL := "http://localhost:11434"
 	if settings.OllamaEndpoint != "" {
 		ollamaURL = settings.OllamaEndpoint
@@ -338,4 +347,73 @@ func callOllama(modelName string, prompt string, history []ChatMessage, systemPr
 	}
 
 	return result.Message.Content, nil
+}
+
+func callOpenRouter(modelName string, prompt string, history []ChatMessage, systemPrompt string, apiKey string) (string, error) {
+	url := "https://openrouter.ai/api/v1/chat/completions"
+
+	type OpenRouterMsg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+
+	var messages []OpenRouterMsg
+	if systemPrompt != "" {
+		messages = append(messages, OpenRouterMsg{Role: "system", Content: systemPrompt})
+	}
+
+	for _, m := range history {
+		messages = append(messages, OpenRouterMsg{Role: m.Role, Content: m.Content})
+	}
+	messages = append(messages, OpenRouterMsg{Role: "user", Content: prompt})
+
+	reqBody := map[string]interface{}{
+		"model":    modelName,
+		"messages": messages,
+		"stream":   false,
+	}
+
+	jsonBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	headers := map[string]string{
+		"Authorization": "Bearer " + apiKey,
+		"HTTP-Referer":  "https://github.com/btrahan1/MutliCode",
+		"X-Title":       "MultiCode",
+	}
+
+	client := &http.Client{Timeout: 90 * time.Second}
+	respBytes, statusCode, err := sendJSONRequest(client, "POST", url, headers, jsonBytes)
+	if err != nil {
+		return "", err
+	}
+
+	if statusCode != http.StatusOK {
+		return "", fmt.Errorf("OpenRouter API error %d: %s", statusCode, string(respBytes))
+	}
+
+	var result struct {
+		Model   string `json:"model"`
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+
+	if err := json.Unmarshal(respBytes, &result); err != nil {
+		return "", err
+	}
+
+	if len(result.Choices) > 0 {
+		content := result.Choices[0].Message.Content
+		if result.Model != "" {
+			content = fmt.Sprintf("%s\n\n*(OpenRouter: Routed to `%s`)*", content, result.Model)
+		}
+		return content, nil
+	}
+
+	return "", fmt.Errorf("empty response from OpenRouter API")
 }

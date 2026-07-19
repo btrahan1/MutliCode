@@ -28,6 +28,7 @@ type AppSettings struct {
 	RepoMapTokens             int                      `json:"repoMapTokens"`
 	EnforcePlanning           bool                     `json:"enforcePlanning"`
 	EnableDiffViewer          bool                     `json:"enableDiffViewer"`
+	CustomModels              []string                 `json:"customModels"`
 }
 
 func getSettingsPath() (string, error) {
@@ -123,6 +124,9 @@ func (a *App) LoadSettings() (AppSettings, error) {
 	}
 	if settings.WorkspaceHistory == nil {
 		settings.WorkspaceHistory = make(map[string][]ChatMessage)
+	}
+	if settings.CustomModels == nil {
+		settings.CustomModels = []string{}
 	}
 	if settings.OllamaEndpoint == "" {
 		settings.OllamaEndpoint = "http://localhost:11434"

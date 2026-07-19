@@ -167,6 +167,7 @@ function App() {
     openRouterApiKey: '',
     ollamaEndpoint: 'http://localhost:11434'
   });
+  const [customModels, setCustomModels] = useState<string[]>([]);
 
   const [toggles, setToggles] = useState({
     enableSearchCode: true,
@@ -350,6 +351,7 @@ function App() {
             openRouterApiKey: loaded.openRouterApiKey || '',
             ollamaEndpoint: loaded.ollamaEndpoint || 'http://localhost:11434'
           });
+          setCustomModels((loaded as any).customModels || []);
           setToggles({
             enableSearchCode: loaded.enableSearchCode !== false,
             enableContextCompression: loaded.enableContextCompression !== false,
@@ -483,11 +485,12 @@ function App() {
       useRepoMap: toggles.useRepoMap,
       repoMapTokens: toggles.repoMapTokens,
       enforcePlanning: toggles.enforcePlanning,
-      enableDiffViewer: toggles.enableDiffViewer
+      enableDiffViewer: toggles.enableDiffViewer,
+      customModels
     };
 
     SaveSettings(settings as any).catch(err => console.error("Failed to save settings:", err));
-  }, [tabs, activeTabId, isLoaded, sidebarWidth, chatWidth, theme, apiKeys, toggles]);
+  }, [tabs, activeTabId, isLoaded, sidebarWidth, chatWidth, theme, apiKeys, toggles, customModels]);
 
   // Autoscroll chat history
   useEffect(() => {
@@ -1765,7 +1768,7 @@ function App() {
               <div className="chat-header">
                 <div className="model-selector-wrapper" style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                   <select 
-                    value={MODELS.includes(activeTab.model) ? activeTab.model : "custom"} 
+                    value={(MODELS.includes(activeTab.model) || customModels.includes(activeTab.model)) ? activeTab.model : "custom"} 
                     onChange={(e) => {
                       if (e.target.value === "custom") {
                         handleModelChange("meta-llama/llama-3.3-70b-instruct:free");
@@ -1776,9 +1779,12 @@ function App() {
                     className="model-select"
                   >
                     {MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+                    {customModels.filter(m => !MODELS.includes(m)).map(m => (
+                      <option key={m} value={m}>⭐ {m}</option>
+                    ))}
                     <option value="custom">Custom Model...</option>
                   </select>
-                  {(!MODELS.includes(activeTab.model) || activeTab.model === "custom") && (
+                  {(!MODELS.includes(activeTab.model) && !customModels.includes(activeTab.model) || activeTab.model === "custom") && (
                     <input 
                       type="text"
                       value={activeTab.model === "custom" ? "" : activeTab.model}
@@ -1821,6 +1827,40 @@ function App() {
                       </div>
                     )}
                     <div className="message-content">{renderMessageContent(m.content)}</div>
+                    {m.role === 'assistant' && (() => {
+                      const match = m.content.match(/\*\(OpenRouter:\s+Routed\s+to\s+\`([^\`\n]+)\`\)\*/);
+                      if (match) {
+                        const modelId = match[1];
+                        const isSaved = customModels.includes(modelId);
+                        return (
+                          <div className="model-routing-action" style={{ marginTop: '6px', fontSize: '0.75rem', opacity: 0.8 }}>
+                            {!isSaved ? (
+                              <button 
+                                onClick={() => {
+                                  setCustomModels(prev => [...prev, modelId]);
+                                  showToast(`Added ${modelId} to your model list!`, "success");
+                                }}
+                                className="add-model-btn"
+                                style={{
+                                  background: 'rgba(56, 189, 248, 0.1)',
+                                  border: '1px solid var(--accent-cyan)',
+                                  color: 'var(--accent-cyan)',
+                                  borderRadius: '4px',
+                                  padding: '2px 6px',
+                                  cursor: 'pointer',
+                                  fontSize: '0.75rem'
+                                }}
+                              >
+                                ➕ Add {modelId} to select list
+                              </button>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>⭐ {modelId} is in select list</span>
+                            )}
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 ))}
                 {activeTab.agentStatus === 'running' && (

@@ -242,121 +242,129 @@ If you have finished the task, output a clear wrap-up explanation without any to
 			messages = append(messages, ChatMessage{Role: "assistant", Content: reply})
 
 			// 3. Parse tool calls
-			toolCall := parseToolCall(reply)
-			if toolCall == nil {
+			toolCalls := parseToolCalls(reply)
+			if len(toolCalls) == 0 {
 				if currentPlan == nil && appSettings.EnforcePlanning {
 					fallbackPlan := parseFallbackPlan(reply)
 					if fallbackPlan != nil {
-						toolCall = &ParsedTool{
-							Name:    "submit_plan",
-							Content: fallbackPlan.Description,
-							Tasks:   fallbackPlan.Tasks,
+						toolCalls = []*ParsedTool{
+							{
+								Name:    "submit_plan",
+								Content: fallbackPlan.Description,
+								Tasks:   fallbackPlan.Tasks,
+							},
 						}
 					}
 				}
 			}
 
-			if toolCall == nil {
+			if len(toolCalls) == 0 {
 				// No more tool calls, agent is finished!
 				a.emitAgentStatus(tabID, "completed")
 				return
 			}
 
-			var toolOutput string
-			if toolCall.Name == "submit_plan" {
-				currentPlan = &AgentPlan{
-					Description: toolCall.Content,
-					Tasks:       toolCall.Tasks,
-				}
-
-				if appSettings.EnforcePlanning {
-					// Emit plan update and change status to wait for approval
-					a.emitAgentPlan(tabID, currentPlan, "waiting_for_approval")
-
-					ch := make(chan string)
-					a.planApprovalsMu.Lock()
-					a.planApprovals[tabID] = ch
-					a.planApprovalsMu.Unlock()
-
-					// Wait on channel
-					approvalResult := <-ch
-
-					a.planApprovalsMu.Lock()
-					delete(a.planApprovals, tabID)
-					a.planApprovalsMu.Unlock()
-
-					if approvalResult == "approved" {
-						toolOutput = "Plan approved by user. You may now start executing your tasks. Remember to update task status using update_task."
-						a.emitAgentPlan(tabID, currentPlan, "running")
-					} else {
-						feedback := strings.TrimPrefix(approvalResult, "rejected:")
-						toolOutput = fmt.Sprintf("Plan rejected by user. Feedback: %s. Please revise your plan and submit a new one.", feedback)
-						a.emitAgentPlan(tabID, nil, "running")
+			var toolOutputs []string
+			for _, toolCall := range toolCalls {
+				var toolOutput string
+				if toolCall.Name == "submit_plan" {
+					currentPlan = &AgentPlan{
+						Description: toolCall.Content,
+						Tasks:       toolCall.Tasks,
 					}
-				} else {
-					// Auto approve
-					toolOutput = "Plan accepted automatically. You may start executing your tasks."
-					a.emitAgentPlan(tabID, currentPlan, "running")
-				}
-			} else if toolCall.Name == "update_task" {
-				if currentPlan != nil {
-					found := false
-					for i, t := range currentPlan.Tasks {
-						if t.ID == toolCall.TaskID {
-							currentPlan.Tasks[i].Status = toolCall.TaskStatus
-							found = true
-							break
+
+					if appSettings.EnforcePlanning {
+						// Emit plan update and change status to wait for approval
+						a.emitAgentPlan(tabID, currentPlan, "waiting_for_approval")
+
+						ch := make(chan string)
+						a.planApprovalsMu.Lock()
+						a.planApprovals[tabID] = ch
+						a.planApprovalsMu.Unlock()
+
+						// Wait on channel
+						approvalResult := <-ch
+
+						a.planApprovalsMu.Lock()
+						delete(a.planApprovals, tabID)
+						a.planApprovalsMu.Unlock()
+
+						if approvalResult == "approved" {
+							toolOutput = "Plan approved by user. You may now start executing your tasks. Remember to update task status using update_task."
+							a.emitAgentPlan(tabID, currentPlan, "running")
+						} else {
+							feedback := strings.TrimPrefix(approvalResult, "rejected:")
+							toolOutput = fmt.Sprintf("Plan rejected by user. Feedback: %s. Please revise your plan and submit a new one.", feedback)
+							a.emitAgentPlan(tabID, nil, "running")
 						}
-					}
-					if found {
-						toolOutput = fmt.Sprintf("Task '%s' status updated to '%s'.", toolCall.TaskID, toolCall.TaskStatus)
+					} else {
+						// Auto approve
+						toolOutput = "Plan accepted automatically. You may start executing your tasks."
 						a.emitAgentPlan(tabID, currentPlan, "running")
-					} else {
-						toolOutput = fmt.Sprintf("Error: Task ID '%s' not found in current plan.", toolCall.TaskID)
 					}
-				} else {
-					toolOutput = "Error: No active plan found. Please submit a plan first using submit_plan."
-				}
-			} else if toolCall.Name == "run_command" {
-				if isDangerousCommand(toolCall.Cmd) {
-					// Emit command approval request to frontend
-					a.emitAgentCommandApproval(tabID, toolCall.Cmd, "waiting_for_command_approval")
+				} else if toolCall.Name == "update_task" {
+					if currentPlan != nil {
+						found := false
+						for i, t := range currentPlan.Tasks {
+							if t.ID == toolCall.TaskID {
+								currentPlan.Tasks[i].Status = toolCall.TaskStatus
+								found = true
+								break
+							}
+						}
+						if found {
+							toolOutput = fmt.Sprintf("Task '%s' status updated to '%s'.", toolCall.TaskID, toolCall.TaskStatus)
+							a.emitAgentPlan(tabID, currentPlan, "running")
+						} else {
+							toolOutput = fmt.Sprintf("Error: Task ID '%s' not found in current plan.", toolCall.TaskID)
+						}
+					} else {
+						toolOutput = "Error: No active plan found. Please submit a plan first using submit_plan."
+					}
+				} else if toolCall.Name == "run_command" {
+					if isDangerousCommand(toolCall.Cmd) {
+						// Emit command approval request to frontend
+						a.emitAgentCommandApproval(tabID, toolCall.Cmd, "waiting_for_command_approval")
 
-					ch := make(chan string)
-					a.planApprovalsMu.Lock()
-					a.planApprovals[tabID] = ch
-					a.planApprovalsMu.Unlock()
+						ch := make(chan string)
+						a.planApprovalsMu.Lock()
+						a.planApprovals[tabID] = ch
+						a.planApprovalsMu.Unlock()
 
-					// Wait on channel
-					approvalResult := <-ch
+						// Wait on channel
+						approvalResult := <-ch
 
-					a.planApprovalsMu.Lock()
-					delete(a.planApprovals, tabID)
-					a.planApprovalsMu.Unlock()
+						a.planApprovalsMu.Lock()
+						delete(a.planApprovals, tabID)
+						a.planApprovalsMu.Unlock()
 
-					if approvalResult == "approved" {
-						a.emitAgentStatus(tabID, "running")
+						if approvalResult == "approved" {
+							a.emitAgentStatus(tabID, "running")
+							toolOutput = a.executeTool(tabID, workspacePath, toolCall)
+						} else {
+							toolOutput = fmt.Sprintf("Error: Command '%s' was denied by the user due to safety policies.", toolCall.Cmd)
+							a.emitAgentStatus(tabID, "running")
+						}
+					} else {
 						toolOutput = a.executeTool(tabID, workspacePath, toolCall)
-					} else {
-						toolOutput = fmt.Sprintf("Error: Command '%s' was denied by the user due to safety policies.", toolCall.Cmd)
-						a.emitAgentStatus(tabID, "running")
 					}
 				} else {
+					// Execute tool call
 					toolOutput = a.executeTool(tabID, workspacePath, toolCall)
 				}
-			} else {
-				// 4. Execute tool call
-				toolOutput = a.executeTool(tabID, workspacePath, toolCall)
+				toolOutputs = append(toolOutputs, toolOutput)
 			}
+
+			combinedOutput := strings.Join(toolOutputs, "\n\n")
 
 			// Emit tool result as user prompt for next iteration
 			a.emitAgentMessage(tabID, ChatMessage{
 				Role:    "user",
-				Content: fmt.Sprintf("### TOOL OUTPUT:\n%s", toolOutput),
+				Content: fmt.Sprintf("### TOOL OUTPUT:\n%s", combinedOutput),
 			})
 			messages = append(messages, ChatMessage{
 				Role:    "user",
-				Content: fmt.Sprintf("### TOOL OUTPUT:\n%s", toolOutput),
+				Content: fmt.Sprintf("### TOOL OUTPUT:\n%s", combinedOutput),
 			})
 
 			// Compress historical messages if enabled
@@ -368,7 +376,7 @@ If you have finished the task, output a clear wrap-up explanation without any to
 			a.emitAgentHistory(tabID, messages)
 
 			// Update the prompt to focus on the tool outcome for the next turn
-			prompt = fmt.Sprintf("Continue executing the task. Last tool output: %s", toolOutput)
+			prompt = fmt.Sprintf("Continue executing the task. Last tool output: %s", combinedOutput)
 		}
 	}()
 }
@@ -388,102 +396,125 @@ type ParsedTool struct {
 }
 
 func parseToolCall(text string) *ParsedTool {
-	// Find <tool name="...">
+	calls := parseToolCalls(text)
+	if len(calls) > 0 {
+		return calls[0]
+	}
+	return nil
+}
+
+func parseToolCalls(text string) []*ParsedTool {
+	// Unescape HTML entities just in case
+	text = strings.ReplaceAll(text, "&lt;", "<")
+	text = strings.ReplaceAll(text, "&gt;", ">")
+	text = strings.ReplaceAll(text, "&amp;", "&")
+
+	var toolCalls []*ParsedTool
+
+	// Find all <tool name="..."> matches
 	startRegex := regexp.MustCompile(`(?i)<tool\s+name=["']?([^"'\s>]+)["']?\s*>`)
-	startMatch := startRegex.FindStringSubmatchIndex(text)
-	if startMatch == nil {
+	startMatches := startRegex.FindAllStringSubmatchIndex(text, -1)
+	if len(startMatches) == 0 {
 		return nil
 	}
 
-	toolName := text[startMatch[2]:startMatch[3]]
+	endRegex := regexp.MustCompile(`(?i)</tool\s*>`)
+	endMatches := endRegex.FindAllStringIndex(text, -1)
 
-	// Find </tool>
-	endIdx := strings.Index(text, "</tool>")
-	if endIdx == -1 {
-		return nil
-	}
-
-	innerContent := text[startMatch[1]:endIdx]
-
-	var tool ParsedTool
-	tool.Name = toolName
-
-	// Extract path
-	pathRegex := regexp.MustCompile(`(?i)<path>([\s\S]*?)</path>`)
-	if pathMatch := pathRegex.FindStringSubmatch(innerContent); len(pathMatch) > 1 {
-		tool.Path = strings.TrimSpace(pathMatch[1])
-	}
-
-	// Extract content
-	contentRegex := regexp.MustCompile(`(?i)<content>([\s\S]*?)</content>`)
-	if contentMatch := contentRegex.FindStringSubmatch(innerContent); len(contentMatch) > 1 {
-		tool.Content = contentMatch[1]
-	}
-
-	// Extract command
-	cmdRegex := regexp.MustCompile(`(?i)<command>([\s\S]*?)</command>`)
-	if cmdMatch := cmdRegex.FindStringSubmatch(innerContent); len(cmdMatch) > 1 {
-		tool.Cmd = strings.TrimSpace(cmdMatch[1])
-	}
-
-	// Extract start_line
-	startLineRegex := regexp.MustCompile(`(?i)<start_line>(\d+)</start_line>`)
-	if startLineMatch := startLineRegex.FindStringSubmatch(innerContent); len(startLineMatch) > 1 {
-		if val, err := strconv.Atoi(strings.TrimSpace(startLineMatch[1])); err == nil {
-			tool.StartLine = val
+	// Pair opening and closing tags sequentially
+	for i, startMatch := range startMatches {
+		if i >= len(endMatches) {
+			break
 		}
-	}
 
-	// Extract end_line
-	endLineRegex := regexp.MustCompile(`(?i)<end_line>(\d+)</end_line>`)
-	if endLineMatch := endLineRegex.FindStringSubmatch(innerContent); len(endLineMatch) > 1 {
-		if val, err := strconv.Atoi(strings.TrimSpace(endLineMatch[1])); err == nil {
-			tool.EndLine = val
+		toolName := text[startMatch[2]:startMatch[3]]
+		startIdx := startMatch[1] // End of <tool ...> tag
+		endIdx := endMatches[i][0] // Start of </tool> tag
+
+		if endIdx <= startIdx {
+			continue
 		}
-	}
 
-	// Extract target
-	targetRegex := regexp.MustCompile(`(?i)<target>([\s\S]*?)</target>`)
-	if targetMatch := targetRegex.FindStringSubmatch(innerContent); len(targetMatch) > 1 {
-		tool.Target = targetMatch[1]
-	}
+		innerContent := text[startIdx:endIdx]
 
-	// Extract replacement
-	replacementRegex := regexp.MustCompile(`(?i)<replacement>([\s\S]*?)</replacement>`)
-	if replacementMatch := replacementRegex.FindStringSubmatch(innerContent); len(replacementMatch) > 1 {
-		tool.Replacement = replacementMatch[1]
-	}
+		var tool ParsedTool
+		tool.Name = toolName
 
-	// Extract description (for submit_plan)
-	descRegex := regexp.MustCompile(`(?i)<description>([\s\S]*?)</description>`)
-	if descMatch := descRegex.FindStringSubmatch(innerContent); len(descMatch) > 1 {
-		tool.Content = strings.TrimSpace(descMatch[1])
-	}
-
-	// Extract tasks (for submit_plan)
-	taskRegex := regexp.MustCompile(`(?i)<task\s+id=["']?([^"'>]+)["']?>([\s\S]*?)</task>`)
-	taskMatches := taskRegex.FindAllStringSubmatch(innerContent, -1)
-	for _, match := range taskMatches {
-		if len(match) > 2 {
-			tool.Tasks = append(tool.Tasks, TaskItem{
-				ID:          strings.TrimSpace(match[1]),
-				Description: strings.TrimSpace(match[2]),
-				Status:      "pending",
-			})
+		// Extract path
+		pathRegex := regexp.MustCompile(`(?i)<path>([\s\S]*?)</path>`)
+		if pathMatch := pathRegex.FindStringSubmatch(innerContent); len(pathMatch) > 1 {
+			tool.Path = strings.TrimSpace(pathMatch[1])
 		}
+
+		// Extract content
+		contentRegex := regexp.MustCompile(`(?i)<content>([\s\S]*?)</content>`)
+		if contentMatch := contentRegex.FindStringSubmatch(innerContent); len(contentMatch) > 1 {
+			tool.Content = contentMatch[1]
+		}
+
+		// Extract command
+		cmdRegex := regexp.MustCompile(`(?i)<command>([\s\S]*?)</command>`)
+		if cmdMatch := cmdRegex.FindStringSubmatch(innerContent); len(cmdMatch) > 1 {
+			tool.Cmd = strings.TrimSpace(cmdMatch[1])
+		}
+
+		// Extract start_line
+		startLineRegex := regexp.MustCompile(`(?i)<start_line>(\d+)</start_line>`)
+		if startLineMatch := startLineRegex.FindStringSubmatch(innerContent); len(startLineMatch) > 1 {
+			if val, err := strconv.Atoi(strings.TrimSpace(startLineMatch[1])); err == nil {
+				tool.StartLine = val
+			}
+		}
+
+		// Extract end_line
+		endLineRegex := regexp.MustCompile(`(?i)<end_line>(\d+)</end_line>`)
+		if endLineMatch := endLineRegex.FindStringSubmatch(innerContent); len(endLineMatch) > 1 {
+			if val, err := strconv.Atoi(strings.TrimSpace(endLineMatch[1])); err == nil {
+				tool.EndLine = val
+			}
+		}
+
+		// Extract target
+		targetRegex := regexp.MustCompile(`(?i)<target>([\s\S]*?)</target>`)
+		if targetMatch := targetRegex.FindStringSubmatch(innerContent); len(targetMatch) > 1 {
+			tool.Target = targetMatch[1]
+		}
+
+		// Extract replacement
+		repRegex := regexp.MustCompile(`(?i)<replacement>([\s\S]*?)</replacement>`)
+		if repMatch := repRegex.FindStringSubmatch(innerContent); len(repMatch) > 1 {
+			tool.Replacement = repMatch[1]
+		}
+
+		// Extract task id
+		idRegex := regexp.MustCompile(`(?i)<id>([\s\S]*?)</id>`)
+		if idMatch := idRegex.FindStringSubmatch(innerContent); len(idMatch) > 1 {
+			tool.TaskID = strings.TrimSpace(idMatch[1])
+		}
+
+		// Extract task status
+		statusRegex := regexp.MustCompile(`(?i)<status>([\s\S]*?)</status>`)
+		if statusMatch := statusRegex.FindStringSubmatch(innerContent); len(statusMatch) > 1 {
+			tool.TaskStatus = strings.TrimSpace(statusMatch[1])
+		}
+
+		// Extract fallback task list
+		taskRegex := regexp.MustCompile(`(?i)<task\s+id=["']?([^"'\s>]+)["']?\s*>([\s\S]*?)</task>`)
+		taskMatches := taskRegex.FindAllStringSubmatch(innerContent, -1)
+		for _, tm := range taskMatches {
+			if len(tm) > 2 {
+				tool.Tasks = append(tool.Tasks, TaskItem{
+					ID:          strings.TrimSpace(tm[1]),
+					Description: strings.TrimSpace(tm[2]),
+					Status:      "pending",
+				})
+			}
+		}
+
+		toolCalls = append(toolCalls, &tool)
 	}
 
-	// Extract task ID and status (for update_task)
-	idRegex := regexp.MustCompile(`(?i)<id>([\s\S]*?)</id>`)
-	if idMatch := idRegex.FindStringSubmatch(innerContent); len(idMatch) > 1 {
-		tool.TaskID = strings.TrimSpace(idMatch[1])
-	}
-	statusRegex := regexp.MustCompile(`(?i)<status>([\s\S]*?)</status>`)
-	if statusMatch := statusRegex.FindStringSubmatch(innerContent); len(statusMatch) > 1 {
-		tool.TaskStatus = strings.TrimSpace(statusMatch[1])
-	}
-
-	return &tool
+	return toolCalls
 }
 
 func (a *App) executeTool(tabID string, workspacePath string, tool *ParsedTool) string {

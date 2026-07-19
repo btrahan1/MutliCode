@@ -18,6 +18,7 @@ export namespace main {
 	    repoMapTokens: number;
 	    enforcePlanning: boolean;
 	    enableDiffViewer: boolean;
+	    customModels: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -42,6 +43,7 @@ export namespace main {
 	        this.repoMapTokens = source["repoMapTokens"];
 	        this.enforcePlanning = source["enforcePlanning"];
 	        this.enableDiffViewer = source["enableDiffViewer"];
+	        this.customModels = source["customModels"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
