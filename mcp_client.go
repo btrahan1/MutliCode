@@ -330,10 +330,17 @@ func (m *McpClient) CallTool(name string, arguments map[string]interface{}) (str
 
 func (m *McpClient) readLoop() {
 	defer m.wg.Done()
-	scanner := bufio.NewScanner(m.stdout)
+	reader := bufio.NewReader(m.stdout)
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err != io.EOF {
+				m.LastError = fmt.Sprintf("stdout read error: %v", err)
+			}
+			break
+		}
+
 		if len(line) == 0 {
 			continue
 		}
@@ -373,9 +380,5 @@ func (m *McpClient) readLoop() {
 			default:
 			}
 		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		m.LastError = fmt.Sprintf("stdout scanner error: %v", err)
 	}
 }
