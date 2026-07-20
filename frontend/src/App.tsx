@@ -31,12 +31,14 @@ import {
   SendTerminalInput,
   StopTerminal,
   GetMcpServersStatus,
-  ReloadMcpServers
+  ReloadMcpServers,
+  ResizeTerminal
 } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { main } from "../wailsjs/go/models";
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import { Terminal } from 'xterm';
+import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 
 interface FileNode {
@@ -552,7 +554,8 @@ function App() {
       .then(() => {
         if (!terminalContainerRef.current) return;
 
-        // Initialize xterm
+        // Initialize xterm with FitAddon for proper terminal sizing
+        const fitAddon = new FitAddon();
         const term = new Terminal({
           cursorBlink: true,
           fontSize: 12,
@@ -562,8 +565,23 @@ function App() {
             foreground: '#f3f4f6'
           }
         });
+        term.loadAddon(fitAddon);
         activeTermRef.current = term;
         term.open(terminalContainerRef.current);
+
+        // Fit the terminal to the container and sync dimensions to the backend shell
+        const syncSize = () => {
+          fitAddon.fit();
+          const cols = term.cols;
+          const rows = term.rows;
+          ResizeTerminal(activeTab.id, cols, rows).catch(() => {});
+        };
+        // Give xterm a moment to measure the container before fitting
+        setTimeout(syncSize, 50);
+
+        // Re-sync on window resize
+        const resizeObserver = new ResizeObserver(() => syncSize());
+        resizeObserver.observe(terminalContainerRef.current);
 
         const handleOutput = (event: { tabId: string; data: string }) => {
           if (event.tabId === activeTab.id) {
@@ -595,6 +613,7 @@ function App() {
         return () => {
           keyDisposable.dispose();
           term.dispose();
+          resizeObserver.disconnect();
           EventsOff("terminal:output");
         };
       })
@@ -1789,7 +1808,14 @@ function App() {
                   <div className="terminal-panel" style={{ height: terminalHeight }}>
                     <div className="terminal-panel-header">
                       <span>Terminal (Interactive)</span>
-                      <button className="close-terminal-btn" onClick={() => setIsTerminalOpen(false)}>×</button>
+                      <div className="terminal-header-actions">
+                        <button
+                          className="clear-terminal-btn"
+                          onClick={() => activeTermRef.current?.clear()}
+                          title="Clear terminal output"
+                        >Clear</button>
+                        <button className="close-terminal-btn" onClick={() => setIsTerminalOpen(false)}>×</button>
+                      </div>
                     </div>
                     <div className="terminal-panel-body" ref={terminalContainerRef}></div>
                   </div>

@@ -103,7 +103,7 @@ func (a *App) LoadSettings() (AppSettings, error) {
 	settings.ChatWidth = 320
 	settings.Theme = "dark"
 	settings.EnableSearchCode = true
-	settings.EnableContextCompression = true
+	settings.EnableContextCompression = false
 	settings.EnforcePlanning = true
 	settings.EnableDiffViewer = true
 

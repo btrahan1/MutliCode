@@ -160,3 +160,28 @@ func (a *App) StopTerminal(tabID string) {
 	}
 	termSessionsMu.Unlock()
 }
+
+// ResizeTerminal tells the shell process to resize its internal buffer to match the xterm viewport.
+// On Windows (PowerShell), we send commands directly to set the console buffer and window width.
+func (a *App) ResizeTerminal(tabID string, cols int, rows int) error {
+	termSessionsMu.Lock()
+	session, exists := termSessions[tabID]
+	termSessionsMu.Unlock()
+
+	if !exists {
+		return nil
+	}
+
+	if cols <= 0 || rows <= 0 {
+		return nil
+	}
+
+	if os.Getenv("OS") == "Windows_NT" {
+		// Set PowerShell buffer and window size to match xterm viewport
+		cmd := fmt.Sprintf("[Console]::BufferWidth = %d; [Console]::WindowWidth = %d; [Console]::BufferHeight = 9999\r\n", cols, cols)
+		_, err := session.Stdin.Write([]byte(cmd))
+		return err
+	}
+
+	return nil
+}

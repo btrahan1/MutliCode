@@ -94,6 +94,10 @@ export function RenamePath(arg1, arg2, arg3) {
   return window['go']['main']['App']['RenamePath'](arg1, arg2, arg3);
 }
 
+export function ResizeTerminal(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ResizeTerminal'](arg1, arg2, arg3);
+}
+
 export function RunProject(arg1, arg2) {
   return window['go']['main']['App']['RunProject'](arg1, arg2);
 }

@@ -59,8 +59,15 @@ func (a *App) StartAgent(tabID string, workspacePath string, modelName string, p
 		// Emit initial running status
 		a.emitAgentStatus(tabID, "running")
 
+		// Run pre-flight context bootstrap to inject files related to prompt & workspace blueprints
+		bootstrappedCtx := a.BootstrapContext(workspacePath, prompt)
+		finalPrompt := prompt
+		if bootstrappedCtx != "" {
+			finalPrompt = prompt + "\n" + bootstrappedCtx
+		}
+
 		// Create workspace message history
-		messages := append(history, ChatMessage{Role: "user", Content: prompt, Image: image})
+		messages := append(history, ChatMessage{Role: "user", Content: finalPrompt, Image: image})
 
 		failedReplaces := make(map[string]int)
 		var currentPlan *AgentPlan

@@ -1,4 +1,4 @@
-Let's build a Wails v2 desktop application in Go + Vanilla HTML/CSS/JS.
+Let's build a Wails v2 desktop application in Go/Wails + React and Typescript.
 
 Here is the exact project layout we need to establish:
 1. Root Files:
@@ -77,3 +77,6 @@ func (a *App) startup(ctx context.Context) {
 
 Project Description:
 
+Let's build a modern SSMS in GO!  (SQL Server Management Studio)
+
+It should have the same basic functionality as SSMS, with a sleek, modern design.
