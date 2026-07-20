@@ -1022,7 +1022,7 @@ function App() {
     }
   };
 
-  const handleChatPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handleChatPaste = (e: React.ClipboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
     const items = e.clipboardData.items;
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf("image") !== -1) {
@@ -1956,12 +1956,18 @@ function App() {
               )}
 
               <div className="chat-input-area">
-                <input
-                  type="text"
-                  placeholder={(activeTab.agentStatus === 'running' || activeTab.agentStatus === 'waiting_for_command_approval' || activeTab.agentStatus === 'waiting_for_approval') ? "Agent is working..." : "Instruct the agent... (Paste image supported)"}
+                <textarea
+                  placeholder={(activeTab.agentStatus === 'running' || activeTab.agentStatus === 'waiting_for_command_approval' || activeTab.agentStatus === 'waiting_for_approval') ? "Agent is working..." : "Instruct the agent... (Ctrl+Enter to send, Paste image supported)"}
                   value={activeTab.chatInput || ""}
                   onChange={(e) => handleChatInputChange(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && activeTab.agentStatus !== 'running' && activeTab.agentStatus !== 'waiting_for_command_approval' && handleSendMessage()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && e.ctrlKey) {
+                      e.preventDefault();
+                      if (activeTab.agentStatus !== 'running' && activeTab.agentStatus !== 'waiting_for_command_approval') {
+                        handleSendMessage();
+                      }
+                    }
+                  }}
                   onPaste={handleChatPaste}
                   className="chat-input"
                   disabled={activeTab.agentStatus === 'running' || activeTab.agentStatus === 'waiting_for_command_approval' || activeTab.agentStatus === 'waiting_for_approval'}
