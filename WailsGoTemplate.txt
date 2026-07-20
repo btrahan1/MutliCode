@@ -1,0 +1,79 @@
+Let's build a Wails v2 desktop application in Go + Vanilla HTML/CSS/JS.
+
+Here is the exact project layout we need to establish:
+1. Root Files:
+   - wails.json: Project configuration file.
+   - main.go: Standard Wails entry point importing "github.com/wailsapp/wails/v2" and mounting the frontend assets.
+   - app.go: Contains the App struct, startup(ctx) hook, and Go-to-JS bindings.
+
+2. Frontend Folder (frontend/):
+   - frontend/index.html: Self-contained HTML with styling and JS scripts embedded.
+
+To initialize and compile:
+1. Run: go mod init [ProjectName]
+2. Run: go get github.com/wailsapp/wails/v2
+3. Run: go mod tidy
+
+Specifications for the files:
+
+--- wails.json ---
+{
+  "name": "[ProjectName]",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev": "",
+  "frontend:dir": "frontend",
+  "wails:timestamp": "2023-10-27T10:00:00Z"
+}
+
+--- main.go ---
+package main
+
+import (
+	"embed"
+	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+)
+
+//go:embed all:frontend
+var assets embed.FS
+
+func main() {
+	app := NewApp()
+	err := wails.Run(&options.App{
+		Title:  "[ProjectName]",
+		Width:  1024,
+		Height: 768,
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+		},
+		OnStartup: app.startup,
+		Bind: []interface{}{
+			app,
+		},
+	})
+	if err != nil {
+		println("Error:", err.Error())
+	}
+}
+
+--- app.go ---
+package main
+
+import "context"
+
+type App struct {
+	ctx context.Context
+}
+
+func NewApp() *App {
+	return &App{}
+}
+
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+}
+
+Project Description:
+

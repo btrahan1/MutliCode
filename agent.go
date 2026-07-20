@@ -62,6 +62,7 @@ func (a *App) StartAgent(tabID string, workspacePath string, modelName string, p
 		// Create workspace message history
 		messages := append(history, ChatMessage{Role: "user", Content: prompt, Image: image})
 
+		failedReplaces := make(map[string]int)
 		var currentPlan *AgentPlan
 
 		for {
@@ -377,6 +378,20 @@ If you have finished the task, output a clear wrap-up explanation without any to
 					// Execute tool call
 					toolOutput = a.executeTool(tabID, workspacePath, toolCall)
 				}
+
+				if toolCall.Name == "replace_text" {
+					if strings.HasPrefix(toolOutput, "Error:") {
+						failedReplaces[toolCall.Path]++
+						if failedReplaces[toolCall.Path] >= 4 {
+							toolOutput = fmt.Sprintf("Error: Surgical replace_text has failed %d times on '%s'. YOU MUST NOW USE <tool name=\"write_file\"> to overwrite the entire file with your updated code to prevent further matching errors.", failedReplaces[toolCall.Path], toolCall.Path)
+						}
+					} else {
+						failedReplaces[toolCall.Path] = 0
+					}
+				} else if toolCall.Name == "write_file" {
+					failedReplaces[toolCall.Path] = 0
+				}
+
 				toolOutputs = append(toolOutputs, toolOutput)
 			}
 
